@@ -1,0 +1,22 @@
+{
+  "can": {
+    "interface": "usb_serial",
+    "channel": "can0",
+    "bitrate": 125000,
+    "timeout": 1.0,
+    "com_port": "COM7",
+    "serial_baudrate": 2000000
+  },
+  "ui": {
+    "theme": "light",
+    "auto_refresh_rate": 100,
+    "max_log_entries": 1000,
+    "graph_update_rate": 500
+  },
+  "network": {
+    "node_id": 1,
+    "heartbeat_period": 1000,
+    "sdo_timeout": 5.0,
+    "emergency_timeout": 2.0
+  }
+}
