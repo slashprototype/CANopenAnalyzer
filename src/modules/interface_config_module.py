@@ -1,5 +1,8 @@
 import flet as ft
 from typing import Any
+import serial.tools.list_ports
+import json
+import os
 from interfaces import InterfaceManager
 
 class InterfaceConfigModule(ft.Column):
@@ -18,11 +21,14 @@ class InterfaceConfigModule(ft.Column):
         
         # UI Controls
         self.interface_dropdown = None
-        self.com_port_field = None
+        self.com_port_dropdown = None
         self.baudrate_field = None
         self.can_channel_field = None
         self.can_bitrate_field = None
         self.connect_button = None
+        self.disconnect_button = None
+        self.save_button = None
+        self.save_status_text = None
         self.status_text = None
         
     def initialize(self):
@@ -35,6 +41,86 @@ class InterfaceConfigModule(ft.Column):
             self.update_connection_state(self.interface_manager.is_connected())
         except Exception as e:
             self.logger.error(f"Error initializing interface config module: {e}")
+    
+    def get_available_com_ports(self):
+        """Get list of available COM ports"""
+        try:
+            ports = serial.tools.list_ports.comports()
+            port_list = []
+            for port in ports:
+                port_list.append(ft.dropdown.Option(port.device, f"{port.device} - {port.description}"))
+            return port_list
+        except Exception as e:
+            self.logger.error(f"Error getting COM ports: {e}")
+            return [ft.dropdown.Option("COM1", "COM1")]
+    
+    def refresh_com_ports(self, e):
+        """Refresh the COM ports dropdown"""
+        try:
+            self.com_port_dropdown.options = self.get_available_com_ports()
+            self.page.update()
+        except Exception as e:
+            self.logger.error(f"Error refreshing COM ports: {e}")
+    
+    def save_configuration(self, e):
+        """Save current configuration to app_config.json"""
+        try:
+            # Update config object with current UI values
+            if self.config.can_config.interface == "usb_serial":
+                self.config.can_config.com_port = self.com_port_dropdown.value
+                self.config.can_config.serial_baudrate = int(self.baudrate_field.value)
+            else:
+                self.config.can_config.channel = self.can_channel_field.value
+                self.config.can_config.bitrate = int(self.can_bitrate_field.value)
+            
+            self.config.can_config.interface = self.interface_dropdown.value
+            
+            # Save to JSON file
+            config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
+                                     "config", "app_config.json")
+            
+            config_data = {
+                "can": {
+                    "interface": self.config.can_config.interface,
+                    "channel": self.config.can_config.channel,
+                    "bitrate": self.config.can_config.bitrate,
+                    "timeout": self.config.can_config.timeout,
+                    "com_port": self.config.can_config.com_port,
+                    "serial_baudrate": self.config.can_config.serial_baudrate
+                },
+                "ui": {
+                    "theme": getattr(self.config.ui_config, 'theme', 'light'),
+                    "auto_refresh_rate": getattr(self.config.ui_config, 'auto_refresh_rate', 100),
+                    "max_log_entries": getattr(self.config.ui_config, 'max_log_entries', 1000),
+                    "graph_update_rate": getattr(self.config.ui_config, 'graph_update_rate', 500)
+                },
+                "network": {
+                    "node_id": getattr(self.config.network_config, 'node_id', 1),
+                    "heartbeat_period": getattr(self.config.network_config, 'heartbeat_period', 1000),
+                    "sdo_timeout": getattr(self.config.network_config, 'sdo_timeout', 5.0),
+                    "emergency_timeout": getattr(self.config.network_config, 'emergency_timeout', 2.0)
+                }
+            }
+            
+            with open(config_path, 'w') as f:
+                json.dump(config_data, f, indent=2)
+            
+            self.logger.info("Configuration saved successfully")
+            
+            # Show success message
+            self.save_status_text.value = "✓ Saved!"
+            self.save_status_text.color = ft.Colors.GREEN
+            self.save_status_text.visible = True
+            self.page.update()
+            
+        except Exception as e:
+            self.logger.error(f"Error saving configuration: {e}")
+            
+            # Show error message
+            self.save_status_text.value = "✗ Error!"
+            self.save_status_text.color = ft.Colors.RED
+            self.save_status_text.visible = True
+            self.page.update()
     
     def build_interface(self):
         """Build the interface configuration UI"""
@@ -55,10 +141,17 @@ class InterfaceConfigModule(ft.Column):
         )
         
         # USB Serial configuration
-        self.com_port_field = ft.TextField(
+        self.com_port_dropdown = ft.Dropdown(
             label="COM Port",
             value=self.config.can_config.com_port,
-            width=150
+            options=self.get_available_com_ports(),
+            width=200
+        )
+        
+        self.refresh_ports_button = ft.IconButton(
+            icon=ft.Icons.REFRESH,
+            tooltip="Refresh COM Ports",
+            on_click=self.refresh_com_ports
         )
         
         self.baudrate_field = ft.TextField(
@@ -79,34 +172,60 @@ class InterfaceConfigModule(ft.Column):
             value=str(self.config.can_config.bitrate),
             width=150
         )
-          # Connection controls
+        
+        # Connection controls (moved to top level)
         self.connect_button = ft.ElevatedButton(
             text="Connect",
             icon=ft.Icons.LINK,
-            on_click=self.on_connect_click
+            on_click=self.on_connect_click,
+            bgcolor=ft.Colors.GREEN,
+            color=ft.Colors.WHITE
         )
         
         self.disconnect_button = ft.ElevatedButton(
             text="Disconnect",
             icon=ft.Icons.LINK_OFF,
             on_click=self.on_disconnect_click,
-            disabled=True
+            disabled=True,
+            bgcolor=ft.Colors.RED,
+            color=ft.Colors.WHITE
+        )
+        
+        # Save configuration button
+        self.save_button = ft.ElevatedButton(
+            text="Save Config",
+            icon=ft.Icons.SAVE,
+            on_click=self.save_configuration,
+            bgcolor=ft.Colors.BLUE,
+            color=ft.Colors.WHITE
+        )
+        
+        # Save status message
+        self.save_status_text = ft.Text(
+            "",
+            size=12,
+            weight=ft.FontWeight.BOLD,
+            visible=False
         )
         
         # Status display
         self.status_text = ft.Text(
             "Status: Disconnected",
-            color=ft.Colors.RED
+            color=ft.Colors.RED,
+            weight=ft.FontWeight.BOLD
         )
         
-        # USB Serial configuration panel
+        # USB Serial configuration panel with integrated save button
         usb_serial_config = ft.Container(
             content=ft.Column([
                 ft.Text("USB Serial Configuration", weight=ft.FontWeight.BOLD),
                 ft.Row([
-                    self.com_port_field,
-                    self.baudrate_field
-                ])
+                    self.com_port_dropdown,
+                    self.refresh_ports_button,
+                    self.baudrate_field,
+                    self.save_button,
+                    self.save_status_text
+                ], alignment=ft.MainAxisAlignment.START)
             ]),
             visible=(self.config.can_config.interface == "usb_serial"),
             padding=10,
@@ -114,14 +233,16 @@ class InterfaceConfigModule(ft.Column):
             border_radius=5
         )
         
-        # SocketCAN configuration panel
+        # SocketCAN configuration panel with integrated save button
         socketcan_config = ft.Container(
             content=ft.Column([
                 ft.Text("SocketCAN Configuration", weight=ft.FontWeight.BOLD),
                 ft.Row([
                     self.can_channel_field,
-                    self.can_bitrate_field
-                ])
+                    self.can_bitrate_field,
+                    self.save_button,
+                    self.save_status_text
+                ], alignment=ft.MainAxisAlignment.START)
             ]),
             visible=(self.config.can_config.interface == "socketcan"),
             padding=10,
@@ -129,7 +250,7 @@ class InterfaceConfigModule(ft.Column):
             border_radius=5
         )
         
-        # Build the complete interface
+        # Build the complete interface with horizontal layout
         self.controls = [
             ft.Container(
                 content=ft.Column([
@@ -138,24 +259,43 @@ class InterfaceConfigModule(ft.Column):
                            weight=ft.FontWeight.BOLD),
                     ft.Divider(),
                     
-                    # Interface selection
-                    ft.Row([
-                        self.interface_dropdown
-                    ]),
+                    # Top level controls - Interface selection and Connection control in same row
+                    ft.Container(
+                        content=ft.Row([
+                            # Interface selection
+                            ft.Container(
+                                content=ft.Column([
+                                    ft.Text("Interface", weight=ft.FontWeight.BOLD, size=14),
+                                    self.interface_dropdown
+                                ]),
+                                padding=10
+                            ),
+                            
+                            # Connection controls embedded in same container
+                            ft.Container(
+                                content=ft.Column([
+                                    ft.Text("Connection Control", weight=ft.FontWeight.BOLD, size=14),
+                                    ft.Row([
+                                        self.connect_button,
+                                        self.disconnect_button
+                                    ]),
+                                    self.status_text
+                                ]),
+                                padding=10,
+                                border=ft.border.all(1, ft.Colors.BLUE_300),
+                                border_radius=5
+                            )
+                        ], alignment=ft.MainAxisAlignment.START),
+                        padding=10,
+                        border=ft.border.all(1, ft.Colors.GREY_400),
+                        border_radius=5
+                    ),
+                    
+                    ft.Divider(),
                     
                     # Configuration panels
                     usb_serial_config,
-                    socketcan_config,
-                      ft.Divider(),
-                    
-                    # Connection controls
-                    ft.Row([
-                        self.connect_button,
-                        self.disconnect_button
-                    ]),
-                    
-                    # Status
-                    self.status_text,
+                    socketcan_config
                     
                 ]),
                 padding=20
@@ -175,6 +315,9 @@ class InterfaceConfigModule(ft.Column):
             
             # Update configuration
             self.config.can_config.interface = interface_type
+            
+            # Hide save status message when changing interface
+            self.save_status_text.visible = False
             
             # Show/hide appropriate configuration panels
             self.usb_serial_config.visible = (interface_type == "usb_serial")
@@ -196,7 +339,7 @@ class InterfaceConfigModule(ft.Column):
         try:
             # Update configuration with current values
             if self.config.can_config.interface == "usb_serial":
-                self.config.can_config.com_port = self.com_port_field.value
+                self.config.can_config.com_port = self.com_port_dropdown.value
                 self.config.can_config.serial_baudrate = int(self.baudrate_field.value)
             else:
                 self.config.can_config.channel = self.can_channel_field.value
@@ -248,6 +391,11 @@ class InterfaceConfigModule(ft.Column):
     def set_connection_change_callback(self, callback):
         """Set callback for connection state changes"""
         self.connection_change_callback = callback
+        
+        self.page.update()
+    
+    def get_interface_manager(self) -> InterfaceManager:
+        """Get the interface manager instance"""
         return self.interface_manager
     
     def set_connection_change_callback(self, callback):
