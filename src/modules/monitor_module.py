@@ -45,8 +45,9 @@ class MonitorModule(ft.Column):
                 ft.DataColumn(ft.Text("Length"))
             ],
             rows=[],
-            heading_row_height=40,
-            data_row_min_height=35
+            heading_row_height=25,
+            data_row_min_height=20,
+            data_row_max_height=25,
         )
         
         self.build_interface()
@@ -113,7 +114,7 @@ class MonitorModule(ft.Column):
                     self.message_table
                 ], scroll=ft.ScrollMode.AUTO),
                 expand=True,
-                padding=10
+                padding=5
             )
         ]
         

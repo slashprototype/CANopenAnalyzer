@@ -173,6 +173,67 @@ class InterfaceManager:
             self.logger.error(f"Error sending data: {e}")
             return False
     
+    def send_sync_message(self, cob_id: int = 0x80, counter: Optional[int] = None) -> bool:
+        """Send a SYNC message with optional counter"""
+        if not self.current_interface:
+            self.logger.error("No interface available for sending SYNC message")
+            return False
+            
+        try:
+            # Prepare SYNC message data
+            if counter is not None:
+                data = [counter]
+            else:
+                data = []
+            
+            # Send using send_can_frame method
+            result = self.current_interface.send_can_frame(
+                frame_id=cob_id,
+                data=data,
+                is_extended=False,
+                is_remote=False
+            )
+            
+            if result:
+                self.logger.debug(f"SYNC message sent - COB-ID: 0x{cob_id:03X}, Data: {data}")
+            else:
+                self.logger.warning(f"Failed to send SYNC message - COB-ID: 0x{cob_id:03X}")
+                
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Error sending SYNC message: {e}")
+            return False
+    
+    def send_nmt_message(self, command_code: int, node_id: int) -> bool:
+        """Send an NMT command message"""
+        if not self.current_interface:
+            self.logger.error("No interface available for sending NMT message")
+            return False
+            
+        try:
+            # NMT messages use COB-ID 0x000 and contain [command, node_id]
+            data = [command_code, node_id]
+            
+            # Send using send_can_frame method
+            result = self.current_interface.send_can_frame(
+                frame_id=0x000,
+                data=data,
+                is_extended=False,
+                is_remote=False
+            )
+            
+            if result:
+                self.logger.debug(f"NMT message sent - Command: 0x{command_code:02X}, Node: {node_id}")
+            else:
+                self.logger.warning(f"Failed to send NMT message - Command: 0x{command_code:02X}, Node: {node_id}")
+                
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Error sending NMT message: {e}")
+            return False
+    
     def add_message_callback(self, callback: Callable[[CANMessage], None]):
         """Add callback for new CAN messages"""
         if self.current_interface:
@@ -229,3 +290,63 @@ class InterfaceManager:
     def is_monitoring(self) -> bool:
         """Check if monitoring is active"""
         return self.current_interface and self.current_interface.is_monitoring
+    
+    def send_sdo_expedited(self, node_id: int, index: int, sub_index: int, value: int, data_size: int) -> bool:
+        """Send an expedited SDO write command"""
+        if not self.current_interface:
+            self.logger.error("No interface available for sending SDO")
+            return False
+            
+        try:
+            # Prepare SDO data dictionary
+            sdo_data = {
+                'node_id': node_id,
+                'index': f"0x{index:04X}" if isinstance(index, int) else index,
+                'subindex': f"0x{sub_index:02X}" if isinstance(sub_index, int) else sub_index,
+                'value': value,
+                'size': data_size,
+                'is_read': False
+            }
+            
+            result = self.current_interface.send_data(sdo_data)
+            
+            if result:
+                self.logger.info(f"SDO expedited write sent - Node: {node_id}, Index: 0x{index:04X}:{sub_index:02X}, Value: {value}")
+            else:
+                self.logger.error(f"Failed to send SDO expedited write - Node: {node_id}, Index: 0x{index:04X}:{sub_index:02X}")
+                
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Error sending SDO expedited write: {e}")
+            return False
+    
+    def send_sdo_read(self, node_id: int, index: int, sub_index: int) -> bool:
+        """Send an SDO read command"""
+        if not self.current_interface:
+            self.logger.error("No interface available for sending SDO read")
+            return False
+            
+        try:
+            # Prepare SDO read data dictionary
+            sdo_data = {
+                'node_id': node_id,
+                'index': f"0x{index:04X}" if isinstance(index, int) else index,
+                'subindex': f"0x{sub_index:02X}" if isinstance(sub_index, int) else sub_index,
+                'value': 0,
+                'size': 32,  # Size doesn't matter for read
+                'is_read': True
+            }
+            
+            result = self.current_interface.send_data(sdo_data)
+            
+            if result:
+                self.logger.info(f"SDO read sent - Node: {node_id}, Index: 0x{index:04X}:{sub_index:02X}")
+            else:
+                self.logger.error(f"Failed to send SDO read - Node: {node_id}, Index: 0x{index:04X}:{sub_index:02X}")
+                
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Error sending SDO read: {e}")
+            return False

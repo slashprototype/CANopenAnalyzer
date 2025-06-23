@@ -205,6 +205,11 @@ class USBSerialCANInterface(BaseCANInterface):
                 else:
                     subindex = int(subindex)
 
+            # Get node ID (default to 1)
+            node_id = send_data.get('node_id', 1)
+            if isinstance(node_id, str):
+                node_id = int(node_id)
+
             is_read = send_data.get('is_read', False)
 
             # Comando CANopen para escritura expedited con tamaño
@@ -220,9 +225,10 @@ class USBSerialCANInterface(BaseCANInterface):
             data_bytes = [(value >> (8 * i)) & 0xFF for i in range(size)] if not is_read else [0] * 4
             data_bytes += [0x00] * (4 - len(data_bytes))
 
-            # ID CAN fijo = 0x0601 (SDO Tx al nodo 1), codificado LSB primero → 01 06
-            frame_id_lsb = 0x01
-            frame_id_msb = 0x06
+            # Calculate SDO COB-ID: 0x600 + node_id for SDO Tx
+            sdo_cob_id = 0x600 + node_id
+            frame_id_lsb = sdo_cob_id & 0xFF
+            frame_id_msb = (sdo_cob_id >> 8) & 0xFF
 
             # Index en little endian
             index_lsb = index & 0xFF
@@ -241,40 +247,12 @@ class USBSerialCANInterface(BaseCANInterface):
             byte_array = bytes.fromhex(full_hex)
             self.ser.write(byte_array)
 
-            return True
-
-        except Exception as e:
-            print(f"ERROR: Error sending data: {e}")
-            return False
-            # Datos en little endian con padding hasta 4 bytes
-            data_bytes = [(value >> (8 * i)) & 0xFF for i in range(size)] if not is_read else [0] * 4
-            data_bytes += [0x00] * (4 - len(data_bytes))
-
-            # ID CAN fijo = 0x0601 (SDO Tx al nodo 1), codificado LSB primero → 01 06
-            frame_id_lsb = 0x01
-            frame_id_msb = 0x06
-
-            # Index en little endian
-            index_lsb = index & 0xFF
-            index_msb = (index >> 8) & 0xFF
-
-            # Payload CAN de 8 bytes
-            sdo_payload = [command, index_lsb, index_msb, subindex] + data_bytes
-
-            # Armar cadena hexadecimal completa
-            header = "AA"
-            size_hex = f"C{len(sdo_payload)}"
-            end = "55"
-            full_hex = header + size_hex + f"{frame_id_lsb:02X}{frame_id_msb:02X}" + ''.join(f"{x:02X}" for x in sdo_payload) + end
-
-            # Enviar como bytes
-            byte_array = bytes.fromhex(full_hex)
-            self.ser.write(byte_array)
-
-            print(f"""DEBUG: SDO Message sent:
+            print(f"""
+            SDO Message sent:
             Header: 0xAA (Fixed start)
             Type: 0x{size_hex}
-            Frame ID: 06 01 (COB-ID: 0x601)
+            Frame ID: {frame_id_msb:02X} {frame_id_lsb:02X} (COB-ID: 0x{sdo_cob_id:03X})
+            Node ID: {node_id}
             Command: 0x{command:02X}
             Index: 0x{index:04X}
             Subindex: 0x{subindex:02X}
@@ -288,3 +266,54 @@ class USBSerialCANInterface(BaseCANInterface):
         except Exception as e:
             print(f"ERROR: Error sending data: {e}")
             return False
+
+    def send_can_frame(self, frame_id: int, data: List[int], is_extended: bool = False, is_remote: bool = False) -> bool:
+        if not self.is_connected or not self.ser:
+            print("ERROR: Not connected to USB-Serial interface")
+            return False
+
+        try:
+            # Header
+            header = 0xAA
+
+            # Control byte:
+            control = 0xC0  # bit7=1, bit6=1 (0xC0)
+            if is_extended:
+                control |= 0x20  # bit5=1 for extended frame
+            if is_remote:
+                control |= 0x10  # bit4=1 for remote frame
+            control |= len(data) & 0x0F  # last 4 bits: length
+
+            frame = [header, control]
+
+            # Frame ID (little endian)
+            if is_extended:
+                # 4 bytes
+                frame += [
+                    (frame_id >> 0) & 0xFF,
+                    (frame_id >> 8) & 0xFF,
+                    (frame_id >> 16) & 0xFF,
+                    (frame_id >> 24) & 0xFF,
+                ]
+            else:
+                # 2 bytes
+                frame += [
+                    (frame_id >> 0) & 0xFF,
+                    (frame_id >> 8) & 0xFF,
+                ]
+
+            # Data bytes
+            frame += data
+
+            # End code
+            frame.append(0x55)
+
+            # Enviar por serial
+            self.ser.write(bytes(frame))
+            print(f"DEBUG: Sent frame: {[f'0x{x:02X}' for x in frame]}")
+            return True
+
+        except Exception as e:
+            print(f"ERROR: Error sending CAN frame: {e}")
+            return False
+

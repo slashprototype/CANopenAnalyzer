@@ -65,6 +65,10 @@ class InterfaceConfigModule(ft.Column):
     def save_configuration(self, e):
         """Save current configuration to app_config.json"""
         try:
+            # Hide previous status message
+            self.save_status_text.visible = False
+            self.page.update()
+            
             # Update config object with current UI values
             if self.config.can_config.interface == "usb_serial":
                 self.config.can_config.com_port = self.com_port_dropdown.value
@@ -108,7 +112,7 @@ class InterfaceConfigModule(ft.Column):
             self.logger.info("Configuration saved successfully")
             
             # Show success message
-            self.save_status_text.value = "✓ Saved!"
+            self.save_status_text.value = "✓ Configuration saved successfully!"
             self.save_status_text.color = ft.Colors.GREEN
             self.save_status_text.visible = True
             self.page.update()
@@ -117,7 +121,7 @@ class InterfaceConfigModule(ft.Column):
             self.logger.error(f"Error saving configuration: {e}")
             
             # Show error message
-            self.save_status_text.value = "✗ Error!"
+            self.save_status_text.value = f"✗ Error saving: {str(e)}"
             self.save_status_text.color = ft.Colors.RED
             self.save_status_text.visible = True
             self.page.update()
@@ -137,7 +141,7 @@ class InterfaceConfigModule(ft.Column):
             value=self.config.can_config.interface,
             options=options,
             on_change=self.on_interface_change,
-            width=200
+            width=250
         )
         
         # USB Serial configuration
@@ -191,7 +195,7 @@ class InterfaceConfigModule(ft.Column):
             color=ft.Colors.WHITE
         )
         
-        # Save configuration button
+        # Save configuration button (single instance)
         self.save_button = ft.ElevatedButton(
             text="Save Config",
             icon=ft.Icons.SAVE,
@@ -200,7 +204,7 @@ class InterfaceConfigModule(ft.Column):
             color=ft.Colors.WHITE
         )
         
-        # Save status message
+        # Save status message (single instance)
         self.save_status_text = ft.Text(
             "",
             size=12,
@@ -215,16 +219,14 @@ class InterfaceConfigModule(ft.Column):
             weight=ft.FontWeight.BOLD
         )
         
-        # USB Serial configuration panel with integrated save button
+        # USB Serial configuration panel
         usb_serial_config = ft.Container(
             content=ft.Column([
                 ft.Text("USB Serial Configuration", weight=ft.FontWeight.BOLD),
                 ft.Row([
                     self.com_port_dropdown,
                     self.refresh_ports_button,
-                    self.baudrate_field,
-                    self.save_button,
-                    self.save_status_text
+                    self.baudrate_field
                 ], alignment=ft.MainAxisAlignment.START)
             ]),
             visible=(self.config.can_config.interface == "usb_serial"),
@@ -233,15 +235,13 @@ class InterfaceConfigModule(ft.Column):
             border_radius=5
         )
         
-        # SocketCAN configuration panel with integrated save button
+        # SocketCAN configuration panel
         socketcan_config = ft.Container(
             content=ft.Column([
                 ft.Text("SocketCAN Configuration", weight=ft.FontWeight.BOLD),
                 ft.Row([
                     self.can_channel_field,
-                    self.can_bitrate_field,
-                    self.save_button,
-                    self.save_status_text
+                    self.can_bitrate_field
                 ], alignment=ft.MainAxisAlignment.START)
             ]),
             visible=(self.config.can_config.interface == "socketcan"),
@@ -295,7 +295,18 @@ class InterfaceConfigModule(ft.Column):
                     
                     # Configuration panels
                     usb_serial_config,
-                    socketcan_config
+                    socketcan_config,
+                    
+                    # Save controls (shared between all panels)
+                    ft.Container(
+                        content=ft.Row([
+                            self.save_button,
+                            self.save_status_text
+                        ], alignment=ft.MainAxisAlignment.START),
+                        padding=10,
+                        border=ft.border.all(1, ft.Colors.GREEN_300),
+                        border_radius=5
+                    )
                     
                 ]),
                 padding=20

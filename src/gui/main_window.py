@@ -5,10 +5,11 @@ from modules.monitor_module import MonitorModule
 from modules.variables_module import VariablesModule
 from modules.nmt_module import NMTModule
 from modules.heartbeat_module import HeartbeatModule
-from modules.od_reader_module import ODReaderModule
+from modules.sync_module import SyncModule  # Import SyncModule
+from modules.od_reader.od_reader_module import ODReaderModule  # Fixed import
 from modules.graph_module import GraphModule
 from modules.interface_config_module import InterfaceConfigModule
-from interfaces.interface_manager import InterfaceManager  # Import InterfaceManager
+from interfaces.interface_manager import InterfaceManager
 
 class MainWindow(ft.Column):
     def __init__(self, page: ft.Page, config: Any, logger: Any):
@@ -17,27 +18,37 @@ class MainWindow(ft.Column):
         self.config = config
         self.logger = logger
         self.modules: Dict[str, Any] = {}
+        self.header_container = None  # Reference to header for color updates
+        self.interface_manager = None  # Reference to interface manager
         
     def initialize(self):
         """Initialize all modules"""
         # Initialize singleton interface manager first
-        interface_manager = InterfaceManager(self.config, self.logger)
-        interface_manager.initialize_interface()
+        self.interface_manager = InterfaceManager(self.config, self.logger)
+        self.interface_manager.initialize_interface()
+        
+        # Register connection callback to update header color
+        self.interface_manager.add_connection_callback(self.update_header_color)
         
         # Initialize interface module with singleton
-        interface_module = InterfaceConfigModule(self.page, self.config, self.logger, interface_manager)
+        interface_module = InterfaceConfigModule(self.page, self.config, self.logger, self.interface_manager)
         interface_module.initialize()
         
         # Initialize modules using singleton interface manager
         self.modules = {
             "interface": interface_module,
-            "monitor": MonitorModule(self.page, self.config, self.logger, interface_manager),
-            "variables": VariablesModule(self.page, self.config, self.logger),
-            "nmt": NMTModule(self.page, self.config, self.logger),
+            "monitor": MonitorModule(self.page, self.config, self.logger, self.interface_manager),
+            "variables": VariablesModule(self.page, self.config, self.logger, self.interface_manager),  # Pass interface_manager
+            "nmt": NMTModule(self.page, self.config, self.logger, self.interface_manager),  # Pass interface_manager
             "heartbeat": HeartbeatModule(self.page, self.config, self.logger),
+            "sync": SyncModule(self.page, self.config, self.logger, self.interface_manager),  # Add SyncModule
             "od_reader": ODReaderModule(self.page, self.config, self.logger),
             "graphs": GraphModule(self.page, self.config, self.logger)
         }
+        
+        # Establish cross-module references
+        self.modules["variables"].set_od_reader_module(self.modules["od_reader"])
+        self.modules["od_reader"].set_variables_module(self.modules["variables"])
         
         # Initialize remaining modules
         for name, module in self.modules.items():
@@ -52,6 +63,20 @@ class MainWindow(ft.Column):
     
     def build_interface(self):
         """Build the main interface"""
+        # Define tab change handler
+        def on_tab_change(e):
+            """Handle tab changes and cross-module communication"""
+            selected_tab = e.control.selected_index
+            
+            # If switching to variables module, try to auto-load OD data
+            if selected_tab == 2:  # Variables tab
+                try:
+                    self.modules["variables"].auto_load_from_od_reader()
+                except Exception as ex:
+                    self.logger.debug(f"Could not auto-load variables: {ex}")
+            
+            self.page.update()
+        
         # Create tabs for each module
         tabs = ft.Tabs(
             selected_index=0,
@@ -83,6 +108,11 @@ class MainWindow(ft.Column):
                     content=self.modules["heartbeat"]
                 ),
                 ft.Tab(
+                    text="SYNC Master",  # Add SYNC tab
+                    icon=ft.Icons.SYNC,
+                    content=self.modules["sync"]
+                ),
+                ft.Tab(
                     text="OD Reader",
                     icon=ft.Icons.DESCRIPTION,
                     content=self.modules["od_reader"]
@@ -93,7 +123,8 @@ class MainWindow(ft.Column):
                     content=self.modules["graphs"]
                 )
             ],
-            expand=1
+            expand=1,
+            on_change=on_tab_change
         )
         
         # Create status bar
@@ -107,26 +138,29 @@ class MainWindow(ft.Column):
             height=40
         )
         
+        # Create header container with reference for color updates
+        self.header_container = ft.Container(
+            content=ft.Row([
+                ft.Text(
+                    "CANopen Analyzer", 
+                    size=20, 
+                    weight=ft.FontWeight.BOLD
+                ),
+                ft.Container(expand=True),  # Spacer
+                ft.IconButton(
+                    icon=ft.Icons.INFO,
+                    tooltip="About",
+                    on_click=self.show_about
+                )
+            ]),
+            bgcolor=ft.Colors.BLUE_50,  # Default color (disconnected)
+            padding=10
+        )
+        
         # Add components to main window
         self.controls = [
-            # Toolbar
-            ft.Container(
-                content=ft.Row([
-                    ft.Text(
-                        "CANopen Analyzer", 
-                        size=20, 
-                        weight=ft.FontWeight.BOLD
-                    ),
-                    ft.Container(expand=True),  # Spacer
-                    ft.IconButton(
-                        icon=ft.Icons.INFO,
-                        tooltip="About",
-                        on_click=self.show_about
-                    )
-                ]),
-                bgcolor=ft.Colors.BLUE_50,
-                padding=10
-            ),
+            # Toolbar with dynamic background color
+            self.header_container,
             
             # Main content area
             tabs,
@@ -136,6 +170,16 @@ class MainWindow(ft.Column):
         ]
         
         self.expand = True
+    
+    def update_header_color(self, connected: bool):
+        """Update header background color based on connection status"""
+        if self.header_container:
+            if connected:
+                self.header_container.bgcolor = ft.Colors.LIGHT_GREEN_100  # Light green when connected
+            else:
+                self.header_container.bgcolor = ft.Colors.BLUE_50  # Default blue when disconnected
+            
+            self.page.update()
     
     def show_about(self, e):
         """Show about dialog"""

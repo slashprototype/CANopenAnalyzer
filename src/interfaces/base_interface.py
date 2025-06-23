@@ -47,8 +47,12 @@ class BaseCANInterface(ABC):
     
     @abstractmethod
     def send_data(self, send_data: Dict[str, Any]) -> bool:
-        """Send data through the CAN interface"""
-        pass
+        """Send data through the interface"""
+        raise NotImplementedError("Subclasses must implement send_data")
+    
+    def send_can_frame(self, frame_id: int, data: List[int], is_extended: bool = False, is_remote: bool = False) -> bool:
+        """Send a raw CAN frame"""
+        raise NotImplementedError("Subclasses must implement send_can_frame")
     
     def add_message_callback(self, callback: Callable):
         """Add callback for new messages"""
