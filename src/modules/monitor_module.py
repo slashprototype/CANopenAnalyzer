@@ -127,6 +127,14 @@ class MonitorModule(ft.Column):
                 self.logger.error("Cannot start monitoring - interface not connected")
                 return
             
+            # Clear existing messages for a clean start
+            self.message_list.clear()
+            self.message_table.rows.clear()
+            self.message_count = 0
+            self.error_count = 0
+            self.messages_since_last_update = 0
+            self.last_update_time = time.time()
+            
             # Add message callback
             self.interface_manager.add_message_callback(self.on_message_received)
             
@@ -185,7 +193,7 @@ class MonitorModule(ft.Column):
     def on_message_received(self, message: CANMessage):
         """Callback for received CAN messages"""
         try:
-            print(f"DEBUG: Monitor received message - COB-ID: 0x{message.cob_id:03X}, Node: {message.node_id}, Type: {message.message_type}, Data: {[hex(b) for b in message.data]}")
+            # print(f"DEBUG: Monitor received message - COB-ID: 0x{message.cob_id:03X}, Node: {message.node_id}, Type: {message.message_type}, Data: {[hex(b) for b in message.data]}")
             
             self.message_list.append(message)
             self.message_count += 1

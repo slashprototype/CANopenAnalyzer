@@ -1,7 +1,7 @@
 from typing import Dict, Any, Optional
 
 class XMLRegister:
-    def __init__(self, index: str, obj_data: Dict[str, Any], sub_index: Optional[str] = None):
+    def __init__(self, index: str, obj_data: Dict[str, Any], sub_index: Optional[str] = None, od_c_length: Optional[int] = None):
         self.index = index.upper() if index else "0000"
         self.sub_index = sub_index.upper() if sub_index else None
         self.name = obj_data.get('name', 'Unknown')
@@ -17,8 +17,15 @@ class XMLRegister:
         self.description = obj_data.get('description', '')
         self.current_value = self.default_value
         
-        # Calculate size based on data type
-        self.size = self._calculate_size_from_data_type(self.data_type)
+        # Store OD.c length if provided
+        self.od_c_length_bytes = od_c_length
+        self.od_c_length_bits = od_c_length * 8 if od_c_length else None
+
+        # Calculate size based on OD.c data first, then data type
+        if self.od_c_length_bits:
+            self.size = self.od_c_length_bits
+        else:
+            self.size = self._calculate_size_from_data_type(self.data_type)
         
         # For PDO mapping
         self.cob_id = None
@@ -26,7 +33,12 @@ class XMLRegister:
         self.pdo_type = None
     
     def _calculate_size_from_data_type(self, data_type: str) -> int:
-        """Calculate size in bits from CANopen data type"""
+        """Calculate size in bits from CANopen data type, with OD.c override"""
+        
+        # If we have OD.c length information, use it as priority
+        if self.od_c_length_bits:
+            return self.od_c_length_bits
+        
         if not data_type:
             return 32
             
@@ -91,6 +103,8 @@ class XMLRegister:
                 'pdo_mapping': self.pdo_mapping,
                 'size': self.size,
                 'size_bytes': self.size // 8 if self.size >= 8 else 1,
+                'od_c_size_bytes': self.od_c_length_bytes,
+                'od_c_size_bits': self.od_c_length_bits,
                 'cob_id': self.cob_id,
                 'position': self.position,
                 'value': self.current_value,

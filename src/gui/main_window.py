@@ -5,8 +5,8 @@ from modules.monitor_module import MonitorModule
 from modules.variables_module import VariablesModule
 from modules.nmt_module import NMTModule
 from modules.heartbeat_module import HeartbeatModule
-from modules.sync_module import SyncModule  # Import SyncModule
-from modules.od_reader.od_reader_module import ODReaderModule  # Fixed import
+from modules.sync_module import SyncModule
+from modules.od_reader.od_reader_module import ODReaderModule
 from modules.graph_module import GraphModule
 from modules.interface_config_module import InterfaceConfigModule
 from interfaces.interface_manager import InterfaceManager
@@ -18,11 +18,11 @@ class MainWindow(ft.Column):
         self.config = config
         self.logger = logger
         self.modules: Dict[str, Any] = {}
-        self.header_container = None  # Reference to header for color updates
-        self.interface_manager = None  # Reference to interface manager
+        self.header_container = None
+        self.interface_manager = None
         
     def initialize(self):
-        """Initialize all modules"""
+        """Initialize all modules and establish cross-references"""
         # Initialize singleton interface manager first
         self.interface_manager = InterfaceManager(self.config, self.logger)
         self.interface_manager.initialize_interface()
@@ -30,36 +30,60 @@ class MainWindow(ft.Column):
         # Register connection callback to update header color
         self.interface_manager.add_connection_callback(self.update_header_color)
         
-        # Initialize interface module with singleton
-        interface_module = InterfaceConfigModule(self.page, self.config, self.logger, self.interface_manager)
-        interface_module.initialize()
+        # Initialize all modules with proper dependencies
+        self._initialize_modules()
         
-        # Initialize modules using singleton interface manager
+        # Establish cross-module references
+        self._setup_cross_references()
+        
+        # Initialize modules in proper order
+        self._initialize_modules_in_order()
+        
+        # Build the interface
+        self.build_interface()
+    
+    def _initialize_modules(self):
+        """Create all module instances"""
         self.modules = {
-            "interface": interface_module,
+            "interface": InterfaceConfigModule(self.page, self.config, self.logger, self.interface_manager),
             "monitor": MonitorModule(self.page, self.config, self.logger, self.interface_manager),
-            "variables": VariablesModule(self.page, self.config, self.logger, self.interface_manager),  # Pass interface_manager
-            "nmt": NMTModule(self.page, self.config, self.logger, self.interface_manager),  # Pass interface_manager
+            "variables": VariablesModule(self.page, self.config, self.logger, self.interface_manager),
+            "nmt": NMTModule(self.page, self.config, self.logger, self.interface_manager),
             "heartbeat": HeartbeatModule(self.page, self.config, self.logger),
-            "sync": SyncModule(self.page, self.config, self.logger, self.interface_manager),  # Add SyncModule
+            "sync": SyncModule(self.page, self.config, self.logger, self.interface_manager),
             "od_reader": ODReaderModule(self.page, self.config, self.logger),
             "graphs": GraphModule(self.page, self.config, self.logger)
         }
-        
-        # Establish cross-module references
+    
+    def _setup_cross_references(self):
+        """Establish bidirectional cross-module references"""
+        # Variables <-> OD Reader bidirectional reference
         self.modules["variables"].set_od_reader_module(self.modules["od_reader"])
         self.modules["od_reader"].set_variables_module(self.modules["variables"])
         
-        # Initialize remaining modules
-        for name, module in self.modules.items():
-            if name not in ["interface", "monitor"]:  # interface and monitor already initialized
-                module.initialize()
+        # Add other cross-references as needed
+        # Example: self.modules["graphs"].set_variables_module(self.modules["variables"])
+    
+    def _initialize_modules_in_order(self):
+        """Initialize modules in the correct order to handle dependencies"""
+        # Initialize interface first
+        self.modules["interface"].initialize()
         
-        # Initialize monitor module after interface
+        # Initialize OD reader (no dependencies)
+        self.modules["od_reader"].initialize()
+        
+        # Initialize modules that depend on interface manager
+        interface_dependent_modules = ["variables", "nmt", "sync"]
+        for module_name in interface_dependent_modules:
+            self.modules[module_name].initialize()
+        
+        # Initialize monitor module last (after interface is ready)
         self.modules["monitor"].initialize()
-            
-        # Build the interface
-        self.build_interface()
+        
+        # Initialize remaining modules
+        remaining_modules = ["heartbeat", "graphs"]
+        for module_name in remaining_modules:
+            self.modules[module_name].initialize()
     
     def build_interface(self):
         """Build the main interface"""
@@ -68,7 +92,7 @@ class MainWindow(ft.Column):
             """Handle tab changes and cross-module communication"""
             selected_tab = e.control.selected_index
             
-            # If switching to variables module, try to auto-load OD data
+            # Auto-load OD data when switching to variables tab
             if selected_tab == 2:  # Variables tab
                 try:
                     self.modules["variables"].auto_load_from_od_reader()
@@ -108,7 +132,7 @@ class MainWindow(ft.Column):
                     content=self.modules["heartbeat"]
                 ),
                 ft.Tab(
-                    text="SYNC Master",  # Add SYNC tab
+                    text="SYNC Master",
                     icon=ft.Icons.SYNC,
                     content=self.modules["sync"]
                 ),
@@ -146,26 +170,21 @@ class MainWindow(ft.Column):
                     size=20, 
                     weight=ft.FontWeight.BOLD
                 ),
-                ft.Container(expand=True),  # Spacer
+                ft.Container(expand=True),
                 ft.IconButton(
                     icon=ft.Icons.INFO,
                     tooltip="About",
                     on_click=self.show_about
                 )
             ]),
-            bgcolor=ft.Colors.BLUE_50,  # Default color (disconnected)
+            bgcolor=ft.Colors.BLUE_50,
             padding=10
         )
         
         # Add components to main window
         self.controls = [
-            # Toolbar with dynamic background color
             self.header_container,
-            
-            # Main content area
             tabs,
-            
-            # Status bar
             status_bar
         ]
         
@@ -175,9 +194,9 @@ class MainWindow(ft.Column):
         """Update header background color based on connection status"""
         if self.header_container:
             if connected:
-                self.header_container.bgcolor = ft.Colors.LIGHT_GREEN_100  # Light green when connected
+                self.header_container.bgcolor = ft.Colors.LIGHT_GREEN_100
             else:
-                self.header_container.bgcolor = ft.Colors.BLUE_50  # Default blue when disconnected
+                self.header_container.bgcolor = ft.Colors.BLUE_50
             
             self.page.update()
     

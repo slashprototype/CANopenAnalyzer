@@ -22,7 +22,7 @@ class SyncModule(ft.Column):
         # SYNC service state
         self.is_sync_active = False
         self.sync_thread: Optional[threading.Thread] = None
-        self.sync_interval = 100  # Default 100ms
+        self.sync_interval = 1000  # Default 100ms
         self.sync_counter = 0
         self.max_counter = 0  # Default max counter (0-240, then wraps to 1)
         self.sync_cob_id = 0x80  # Default SYNC COB-ID
@@ -104,7 +104,8 @@ class SyncModule(ft.Column):
                         ft.Text("(0=no counter, 1-240)")
                     ]),
                 ]),
-                padding=15
+                padding=15,
+                width=600,
             )
         )
         
@@ -188,7 +189,7 @@ class SyncModule(ft.Column):
                 ft.Column([
                     config_card,
                     control_card
-                ], width=400),
+                ], width=500),
                 ft.Container(width=20),
                 ft.Column([
                     stats_card,
@@ -324,7 +325,9 @@ class SyncModule(ft.Column):
     
     def sync_worker(self):
         """Worker thread for sending SYNC messages"""
+        self.logger.info("Starting SYNC worker thread")
         while self.is_sync_active:
+            
             try:
                 current_time = time.time()
                 
@@ -397,7 +400,7 @@ class SyncModule(ft.Column):
         def update_gui():
             if self.counter_display:
                 self.counter_display.value = str(self.sync_counter)
-                self.page.update()
+                # self.page.update()
         
         # Schedule GUI update on main thread
         try:
@@ -435,7 +438,7 @@ class SyncModule(ft.Column):
         # Thread-safe GUI update
         def update_stats_gui():
             self.stats_text.value = stats_text
-            self.page.update()
+            # self.page.update()
         
         try:
             self.page.run_thread(update_stats_gui)

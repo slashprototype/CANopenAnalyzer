@@ -45,12 +45,33 @@ class USBSerialCANInterface(BaseCANInterface):
         if not self.is_connected or not self.ser:
             print("ERROR: Cannot start monitoring - not connected")
             return False
+        
+        # Clear any pending data in serial buffer and message history
+        self._clear_buffers()
             
         self.is_monitoring = True
         self.communication_thread = threading.Thread(target=self._communication_loop)
         self.communication_thread.daemon = True
         self.communication_thread.start()
         return True
+    
+    def _clear_buffers(self):
+        """Clear serial buffer and message history before starting monitoring"""
+        try:
+            # Clear serial input buffer
+            if self.ser and self.ser.is_open:
+                self.ser.reset_input_buffer()
+                print("DEBUG: Serial input buffer cleared")
+            
+            # Clear internal message storage
+            with self._lock:
+                self.last_valid_messages.clear()
+                self.message_stack.clear()
+                self.message_history.clear()
+                print("DEBUG: Message buffers cleared")
+                
+        except Exception as e:
+            print(f"ERROR: Error clearing buffers: {e}")
     
     def stop_monitoring(self):
         """Stop monitoring CAN messages"""

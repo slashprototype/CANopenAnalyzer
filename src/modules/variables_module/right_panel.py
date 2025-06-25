@@ -5,245 +5,108 @@ class RightPanel(ft.Column):
     def __init__(self, parent_module):
         super().__init__()
         self.parent = parent_module
-        self.variables_module = parent_module  # Keep separate reference to avoid Flet overwriting
+        self.variables_module = parent_module
         self.tracked_variables = []
         
-        # Controls
-        self.variables_table = None
-        self.clear_button = None
-        self.export_button = None
+        # Dialog management - simplified
         self.write_dialog = None
         self.current_variable_for_write = None
-    
-    def initialize(self):
-        """Initialize the right panel"""
+
+        # Controls
         self.variables_table = ft.DataTable(
             columns=[
-                ft.DataColumn(ft.Text("Index", size=10, weight=ft.FontWeight.BOLD)),
-                ft.DataColumn(ft.Text("Name", size=10, weight=ft.FontWeight.BOLD)),
-                ft.DataColumn(ft.Text("Category", size=10, weight=ft.FontWeight.BOLD)),
-                ft.DataColumn(ft.Text("Type", size=10, weight=ft.FontWeight.BOLD)),
-                ft.DataColumn(ft.Text("Current Value", size=10, weight=ft.FontWeight.BOLD)),
-                ft.DataColumn(ft.Text("Last Update", size=10, weight=ft.FontWeight.BOLD)),
-                ft.DataColumn(ft.Text("Updates", size=10, weight=ft.FontWeight.BOLD)),
-                ft.DataColumn(ft.Text("Actions", size=10, weight=ft.FontWeight.BOLD))
+                ft.DataColumn(ft.Text("Index", size=13, weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text("Name", size=13, weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text("Category", size=13, weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text("Length (bytes)", size=13, weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text("Current Value", size=13, weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text("Last Update", size=13, weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text("Updates", size=13, weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text("Actions", size=13, weight=ft.FontWeight.BOLD))
             ],
             rows=[],
             heading_row_height=30,
             data_row_min_height=25,
             data_row_max_height=30
         )
-        
-        self.clear_button = ft.ElevatedButton(
-            "Clear All",
-            icon=ft.Icons.CLEAR_ALL,
-            on_click=self.clear_all_variables
-        )
-        
-        self.export_button = ft.ElevatedButton(
-            "Export Data",
-            icon=ft.Icons.DOWNLOAD,
-            on_click=self.export_variables
-        )
-        
-        self.controls = [
-            ft.Row([
-                ft.Text("Tracked Variables", size=16, weight=ft.FontWeight.BOLD),
-                ft.Container(expand=True),
-                self.clear_button,
-                self.export_button
-            ]),
-            ft.Divider(height=1),
-            ft.Container(
-                content=ft.Column([
-                    self.variables_table
-                ], scroll=ft.ScrollMode.AUTO),
-                expand=True,
-                border=ft.border.all(1, ft.Colors.GREY_300),
-                border_radius=5,
-                padding=10
-            )
-        ]
-        self.expand = True
-        
-        # Initialize write dialog
-        self._create_write_dialog()
-    
-    def _create_write_dialog(self):
-        """Create the SDO write dialog"""
-        self.value_input = ft.TextField(
-            label="Value to write",
-            helper_text="Enter value (decimal or hex with 0x prefix)",
-            width=300
-        )
-        
+
+    def initialize(self):
+        """Initialize the right panel"""
+        # Write dialog controls
         self.node_id_input = ft.TextField(
             label="Node ID",
             value="1",
-            helper_text="Target node ID (1-127)",
-            width=150
+            width=100,
+            text_size=14
         )
         
-        self.write_dialog = ft.AlertDialog(
-            title=ft.Text("Write SDO Value"),
-            content=ft.Column([
-                ft.Text("Variable: ", size=14, weight=ft.FontWeight.BOLD),
-                ft.Text("", ref=ft.Ref[ft.Text]()),  # Will be updated with variable info
-                ft.Divider(),
-                self.node_id_input,
-                self.value_input,
-                ft.Text("Note: This will perform an expedited SDO transfer", 
-                       size=12, italic=True, color=ft.Colors.BLUE_GREY)
-            ], tight=True, spacing=10),
-            actions=[
-                ft.TextButton("Cancel", on_click=self._close_write_dialog),
-                ft.ElevatedButton("Write", on_click=self._perform_sdo_write, 
-                                bgcolor=ft.Colors.GREEN, color=ft.Colors.WHITE)
-            ],
-            modal=True
+        self.value_input = ft.TextField(
+            label="Value",
+            hint_text="Decimal or hex (0x...)",
+            width=200,
+            text_size=14
         )
-    
-    def _show_write_dialog(self, variable: TrackedVariable):
-        """Show the write dialog for a specific variable"""
-        self.current_variable_for_write = variable
         
-        # Update dialog content with variable info
-        var_info = f"{variable.name} ({variable.index}:{variable.sub_index}) - {variable.data_type}"
-        self.write_dialog.content.controls[1].value = var_info
-        
-        # Clear previous values
-        self.value_input.value = ""
-        self.node_id_input.value = "1"
-        
+        # Create dialog but don't add it to page yet
+        self.write_dialog = None
+        self.current_variable_for_write = None
+
+        # Node ID field for the panel
+        self.panel_node_id = ft.TextField(
+            label="Default Node ID",
+            value="2",
+            width=120,
+            text_size=14,
+            tooltip="Node ID used for read/write operations"
+        )
+
+        # Create action buttons for the panel
+        action_buttons = ft.Row([
+            self.panel_node_id,
+            ft.ElevatedButton(
+                "Clear All",
+                icon=ft.Icons.CLEAR_ALL,
+                on_click=self.clear_all_variables
+            ),
+            ft.ElevatedButton(
+                "Export",
+                icon=ft.Icons.DOWNLOAD,
+                on_click=self.export_variables
+            ),
+        ], spacing=10)
+
+        # Add controls to the panel
+        self.controls = [
+            ft.Text("Tracked Variables", size=16, weight=ft.FontWeight.BOLD),
+            ft.Divider(height=1),
+            action_buttons,
+            self.variables_table,
+        ]
+
+        # Initialize with empty content
         if hasattr(self.variables_module, 'page') and self.variables_module.page:
-            self.variables_module.page.open(self.write_dialog)
-    
-    def _close_write_dialog(self, e):
-        """Close the write dialog"""
-        if hasattr(self.variables_module, 'page') and self.variables_module.page:
-            self.write_dialog.open = False
             self.variables_module.page.update()
-    
-    def _perform_sdo_write(self, e):
-        """Perform the SDO write operation"""
-        try:
-            # Validate inputs
-            if not self.current_variable_for_write:
-                self._show_error("No variable selected")
-                return
-            
-            value_str = self.value_input.value.strip()
-            node_id_str = self.node_id_input.value.strip()
-            
-            if not value_str or not node_id_str:
-                self._show_error("Please enter both value and node ID")
-                return
-            
-            # Parse value
-            try:
-                if value_str.startswith('0x') or value_str.startswith('0X'):
-                    value = int(value_str, 16)
-                else:
-                    value = int(value_str)
-            except ValueError:
-                self._show_error("Invalid value format")
-                return
-            
-            # Parse node ID
-            try:
-                node_id = int(node_id_str)
-                if node_id < 1 or node_id > 127:
-                    self._show_error("Node ID must be between 1 and 127")
-                    return
-            except ValueError:
-                self._show_error("Invalid node ID")
-                return
-            
-            # Determine data size based on variable type
-            data_size = self._get_data_size_for_type(self.current_variable_for_write.data_type)
-            
-            # Prepare SDO data
-            sdo_data = {
-                'index': self.current_variable_for_write.index,
-                'subindex': self.current_variable_for_write.sub_index,
-                'value': value,
-                'size': data_size,
-                'is_read': False,
-                'node_id': node_id
-            }
-            
-            # Send through interface manager
-            if self.variables_module.interface_manager:
-                success = self.variables_module.interface_manager.send_data(sdo_data)
-                if success:
-                    self._show_success(f"SDO write sent successfully to node {node_id}")
-                    self._close_write_dialog(None)
-                else:
-                    self._show_error("Failed to send SDO write")
-            else:
-                self._show_error("No interface available")
-                
-        except Exception as ex:
-            self._show_error(f"Error performing SDO write: {ex}")
-    
-    def _get_data_size_for_type(self, data_type: str) -> int:
-        """Get data size in bits based on data type"""
-        type_sizes = {
-            'BOOLEAN': 8,
-            'UNSIGNED8': 8,
-            'INTEGER8': 8,
-            'SIGNED8': 8,
-            'UNSIGNED16': 16,
-            'INTEGER16': 16,
-            'SIGNED16': 16,
-            'UNSIGNED32': 32,
-            'INTEGER32': 32,
-            'SIGNED32': 32,
-            'REAL32': 32
-        }
-        return type_sizes.get(data_type.upper(), 32)  # Default to 32 bits
-    
-    def _show_error(self, message: str):
-        """Show error message"""
-        if hasattr(self.variables_module, 'page') and self.variables_module.page:
-            self.variables_module.page.open(
-                ft.SnackBar(
-                    content=ft.Text(message),
-                    bgcolor=ft.Colors.RED_400
-                )
-            )
-    
-    def _show_success(self, message: str):
-        """Show success message"""
-        if hasattr(self.variables_module, 'page') and self.variables_module.page:
-            self.variables_module.page.open(
-                ft.SnackBar(
-                    content=ft.Text(message),
-                    bgcolor=ft.Colors.GREEN_400
-                )
-            )
-    
+
     def add_variable(self, variable: TrackedVariable):
         """Add variable to tracking table"""
         # Check if already tracking this variable
         for tracked in self.tracked_variables:
-            if tracked.index == variable.index and tracked.sub_index == variable.sub_index:
+            if tracked.index == variable.index:
                 if hasattr(self.variables_module, 'page') and self.variables_module.page:
                     self.variables_module.page.open(
                         ft.SnackBar(
-                            content=ft.Text(f"Variable {variable.index}:{variable.sub_index} already being tracked"),
+                            content=ft.Text(f"Variable {variable.index} already being tracked"),
                             bgcolor=ft.Colors.ORANGE_400
                         )
                     )
                 return
         
-        # Create new tracked variable
+        # Create new tracked variable using only od_c_parser data
         new_tracked = TrackedVariable(
             index=variable.index,
-            sub_index=variable.sub_index,
             name=variable.name,
             category=variable.category,
-            data_type=variable.data_type
+            data_length=variable.data_length
         )
         
         self.tracked_variables.append(new_tracked)
@@ -256,13 +119,238 @@ class RightPanel(ft.Column):
                     bgcolor=ft.Colors.GREEN_400
                 )
             )
-    
+
+    def update_table(self):
+        """Update the variables table"""
+        self.variables_table.rows.clear()
+        
+        for var in self.tracked_variables:
+            remove_button = ft.IconButton(
+                icon=ft.Icons.DELETE,
+                icon_color=ft.Colors.RED,
+                icon_size=20,
+                on_click=lambda e, v=var: self.remove_variable(v)
+            )
+            
+            write_button = ft.IconButton(
+                icon=ft.Icons.EDIT,
+                icon_color=ft.Colors.BLUE,
+                icon_size=20,
+                tooltip="Write SDO value",
+                on_click=lambda e, v=var: self._show_write_dialog(v)
+            )
+            
+            read_button = ft.IconButton(
+                icon=ft.Icons.REFRESH,
+                icon_color=ft.Colors.GREEN,
+                icon_size=20,
+                tooltip="Read current value",
+                on_click=lambda e, v=var: self._read_variable_value(v)
+            )
+            
+            last_update_str = "Never"
+            if var.last_update:
+                last_update_str = var.last_update.strftime("%H:%M:%S")
+            
+            row = ft.DataRow(
+                cells=[
+                    ft.DataCell(ft.Text(var.index, size=13)),
+                    ft.DataCell(ft.Text(var.name, size=13)),
+                    ft.DataCell(ft.Text(var.category, size=13)),
+                    ft.DataCell(ft.Text(str(var.data_length), size=13)),
+                    ft.DataCell(ft.Text(str(var.current_value), size=13)),
+                    ft.DataCell(ft.Text(last_update_str, size=13)),
+                    ft.DataCell(ft.Text(str(var.update_count), size=13)),
+                    ft.DataCell(ft.Row([read_button, write_button, remove_button], spacing=5))
+                ]
+            )
+            self.variables_table.rows.append(row)
+        
+        if hasattr(self.variables_module, 'page') and self.variables_module.page:
+            self.variables_module.page.update()
+
+    def _create_write_dialog(self, variable: TrackedVariable):
+        """Create a new write dialog for the variable"""
+        value_field = ft.TextField(
+            label="Value",
+            hint_text="Decimal or hex (0x...)",
+            width=200,
+            text_size=14
+        )
+        
+        # Use the panel's node ID as default
+        default_node_id = self.panel_node_id.value if hasattr(self, 'panel_node_id') and self.panel_node_id.value else "2"
+        
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(f"Write Variable: {variable.name} ({variable.index})"),
+            content=ft.Column([
+                ft.Text("Enter value to write:"),
+                value_field,
+                ft.Text(f"Using Node ID: {default_node_id}", size=12, color=ft.Colors.GREY_600),
+            ], tight=True),
+            actions=[
+                ft.TextButton("Cancel", on_click=lambda e: self.variables_module.page.close(dialog)),
+                ft.TextButton("Write", on_click=lambda e: self._perform_write_simplified(e, variable, value_field, dialog)),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        
+        return dialog
+
+    def _show_write_dialog(self, variable: TrackedVariable):
+        """Show write dialog for variable"""
+        try:
+            if not self.variables_module.page:
+                print("Error: Page not available")
+                return
+            
+            # Store current variable
+            self.current_variable_for_write = variable
+            
+            # Create dialog
+            self.write_dialog = self._create_write_dialog(variable)
+            
+            # Open dialog using official method
+            self.variables_module.page.open(self.write_dialog)
+            
+        except Exception as e:
+            print(f"Error showing write dialog: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _perform_write_with_fields(self, e, variable: TrackedVariable, value_field: ft.TextField, node_id_field: ft.TextField, dialog: ft.AlertDialog):
+        """Perform variable write with direct field references"""
+        try:
+            if not variable:
+                self._show_error("No variable selected")
+                return
+
+            value_str = value_field.value.strip() if value_field.value else ""
+            node_id_str = node_id_field.value.strip() if node_id_field.value else ""
+
+            if not value_str or not node_id_str:
+                self._show_error("Please enter both value and node ID")
+                return
+
+            # Parse value
+            try:
+                if value_str.startswith('0x') or value_str.startswith('0X'):
+                    value = int(value_str, 16)
+                else:
+                    value = int(value_str)
+            except ValueError:
+                self._show_error("Invalid value format")
+                return
+
+            # Parse node ID
+            try:
+                node_id = int(node_id_str)
+                if node_id < 1 or node_id > 127:
+                    self._show_error("Node ID must be between 1 and 127")
+                    return
+            except ValueError:
+                self._show_error("Invalid node ID")
+                return
+
+            # Close dialog first using official method
+            self.variables_module.page.close(dialog)
+            
+            # Send write request
+            success = self.variables_module.write_variable(variable, value, node_id)
+            if success:
+                print(f"SDO write request sent successfully")
+            else:
+                self._show_error("Failed to send SDO write request")
+
+        except Exception as ex:
+            print(f"Error performing write: {ex}")
+            import traceback
+            traceback.print_exc()
+            self._show_error(f"Error performing write: {ex}")
+
+    def _perform_write_simplified(self, e, variable: TrackedVariable, value_field: ft.TextField, dialog: ft.AlertDialog):
+        """Perform variable write using panel's node ID"""
+        try:
+            if not variable:
+                self._show_error("No variable selected")
+                return
+
+            value_str = value_field.value.strip() if value_field.value else ""
+
+            if not value_str:
+                self._show_error("Please enter a value")
+                return
+
+            # Parse value
+            try:
+                if value_str.startswith('0x') or value_str.startswith('0X'):
+                    value = int(value_str, 16)
+                else:
+                    value = int(value_str)
+            except ValueError:
+                self._show_error("Invalid value format")
+                return
+
+            # Get node ID from panel
+            try:
+                node_id_str = self.panel_node_id.value.strip() if hasattr(self, 'panel_node_id') and self.panel_node_id.value else "2"
+                node_id = int(node_id_str)
+                if node_id < 1 or node_id > 127:
+                    self._show_error("Node ID must be between 1 and 127")
+                    return
+            except ValueError:
+                self._show_error("Invalid node ID in panel")
+                return
+
+            # Close dialog first using official method
+            self.variables_module.page.close(dialog)
+            
+            # Send write request
+            success = self.variables_module.write_variable(variable, value, node_id)
+            if success:
+                print(f"SDO write request sent successfully")
+            else:
+                self._show_error("Failed to send SDO write request")
+
+        except Exception as ex:
+            print(f"Error performing write: {ex}")
+            import traceback
+            traceback.print_exc()
+            self._show_error(f"Error performing write: {ex}")
+
+    def _show_error(self, message: str):
+        """Show error message"""
+        try:
+            if hasattr(self.variables_module, 'page') and self.variables_module.page:
+                self.variables_module.page.open(
+                    ft.SnackBar(
+                        content=ft.Text(message), 
+                        bgcolor=ft.Colors.RED_400
+                    )
+                )
+        except Exception as e:
+            print(f"Error in _show_error: {e}")
+
+    def _show_success(self, message: str):
+        """Show success message"""
+        try:
+            if hasattr(self.variables_module, 'page') and self.variables_module.page:
+                self.variables_module.page.open(
+                    ft.SnackBar(
+                        content=ft.Text(message), 
+                        bgcolor=ft.Colors.GREEN_400
+                    )
+                )
+        except Exception as e:
+            print(f"Error in _show_success: {e}")
+
     def remove_variable(self, variable: TrackedVariable):
         """Remove variable from tracking"""
         if variable in self.tracked_variables:
             self.tracked_variables.remove(variable)
             self.update_table()
-    
+
     def clear_all_variables(self, e):
         """Clear all tracked variables"""
         self.tracked_variables.clear()
@@ -275,7 +363,7 @@ class RightPanel(ft.Column):
                     bgcolor=ft.Colors.BLUE_400
                 )
             )
-    
+
     def export_variables(self, e):
         """Export variables data"""
         # Placeholder for export functionality
@@ -286,44 +374,29 @@ class RightPanel(ft.Column):
                     bgcolor=ft.Colors.ORANGE_400
                 )
             )
-    
-    def update_table(self):
-        """Update the variables table"""
-        self.variables_table.rows.clear()
-        
-        for var in self.tracked_variables:
-            remove_button = ft.IconButton(
-                icon=ft.Icons.DELETE,
-                icon_color=ft.Colors.RED,
-                icon_size=16,
-                on_click=lambda e, v=var: self.remove_variable(v)
-            )
+
+    def _read_variable_value(self, variable: TrackedVariable):
+        """Read current value of the variable"""
+        try:
+            # Get node ID from panel
+            try:
+                node_id_str = self.panel_node_id.value.strip() if hasattr(self, 'panel_node_id') and self.panel_node_id.value else "2"
+                node_id = int(node_id_str)
+                if node_id < 1 or node_id > 127:
+                    self._show_error("Invalid Node ID in panel")
+                    return
+            except ValueError:
+                self._show_error("Invalid Node ID format in panel")
+                return
             
-            write_button = ft.IconButton(
-                icon=ft.Icons.EDIT,
-                icon_color=ft.Colors.BLUE,
-                icon_size=16,
-                tooltip="Write SDO value",
-                on_click=lambda e, v=var: self._show_write_dialog(v)
-            )
+            # Call the module's read method
+            success = self.variables_module.read_variable(variable, node_id)
             
-            last_update_str = "Never"
-            if var.last_update:
-                last_update_str = var.last_update.strftime("%H:%M:%S")
-            
-            row = ft.DataRow(
-                cells=[
-                    ft.DataCell(ft.Text(f"{var.index}:{var.sub_index}", size=10)),
-                    ft.DataCell(ft.Text(var.name[:20], size=10)),
-                    ft.DataCell(ft.Text(var.category, size=10)),
-                    ft.DataCell(ft.Text(var.data_type, size=10)),
-                    ft.DataCell(ft.Text(str(var.current_value), size=10)),
-                    ft.DataCell(ft.Text(last_update_str, size=10)),
-                    ft.DataCell(ft.Text(str(var.update_count), size=10)),
-                    ft.DataCell(ft.Row([write_button, remove_button], spacing=5))
-                ]
-            )
-            self.variables_table.rows.append(row)
-        
-        if hasattr(self.variables_module, 'page') and self.variables_module.page:
-            self.variables_module.page.update()
+            if success:
+                self._show_success(f"Reading {variable.name}...")
+            else:
+                self._show_error(f"Failed to send read request for {variable.name}")
+                
+        except Exception as e:
+            self.logger.error(f"Error reading variable {variable.name}: {e}")
+            self._show_error(f"Error reading variable: {e}")

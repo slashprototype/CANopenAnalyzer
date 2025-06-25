@@ -292,22 +292,32 @@ class InterfaceManager:
         return self.current_interface and self.current_interface.is_monitoring
     
     def send_sdo_expedited(self, node_id: int, index: int, sub_index: int, value: int, data_size: int) -> bool:
-        """Send an expedited SDO write command"""
+        """Send an expedited SDO write command
+        
+        Args:
+            node_id: Node ID of the target device
+            index: OD index (int)
+            sub_index: OD subindex (int) - should be 0 for most cases
+            value: Value to write
+            data_size: Size in bits (should match OD definition, e.g., 8, 16, 32)
+        """
         if not self.current_interface:
             self.logger.error("No interface available for sending SDO")
             return False
             
         try:
-            # Prepare SDO data dictionary
+            # Prepare SDO data dictionary for interface
             sdo_data = {
                 'node_id': node_id,
-                'index': f"0x{index:04X}" if isinstance(index, int) else index,
-                'subindex': f"0x{sub_index:02X}" if isinstance(sub_index, int) else sub_index,
+                'index': f"0x{index:04X}",
+                'subindex': f"0x{sub_index:02X}",
                 'value': value,
-                'size': data_size,
+                'size': data_size,  # Size in bits
                 'is_read': False
             }
-            
+
+            self.logger.debug(f"SDO expedited write: node_id={node_id}, index=0x{index:04X}, sub_index=0x{sub_index:02X}, value={value}, size(bits)={data_size}")
+
             result = self.current_interface.send_data(sdo_data)
             
             if result:
@@ -349,4 +359,5 @@ class InterfaceManager:
             
         except Exception as e:
             self.logger.error(f"Error sending SDO read: {e}")
+            return False
             return False
