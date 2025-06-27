@@ -128,27 +128,46 @@ class LeftPanel(ft.Column):
         if hasattr(self.variables_module, 'page') and self.variables_module.page:
             self.variables_module.page.update()
 
-    def load_variables_from_od(self, od_module):
-        """Load variables from OD.c registers"""
+    def load_variables_from_od(self, od_module_or_registers):
+        """Load variables from OD.c registers - accepts either od_module or registers list"""
         self.available_variables.clear()
         
-        if not hasattr(od_module, "registers") or not od_module.registers:
+        # Handle both od_module object and direct registers list
+        if hasattr(od_module_or_registers, 'registers'):
+            # It's an od_module object
+            registers = od_module_or_registers.registers
+        elif isinstance(od_module_or_registers, list):
+            # It's a direct registers list
+            registers = od_module_or_registers
+        else:
+            self.status_text.value = "Invalid data format"
+            self.status_text.color = ft.Colors.RED
+            return
+        
+        if not registers:
             self.status_text.value = "No OD.c data available"
             self.status_text.color = ft.Colors.RED
             return
         
-        for reg in od_module.registers:
+        for reg in registers:
+            # Handle both 'dataLength' and 'data_length' keys
+            data_length = reg.get('data_length', reg.get('dataLength', 1))
+            
             var = TrackedVariable(
                 index=reg['index'],
                 name=reg['name'],
                 category=reg['category'],
-                data_length=reg['data_length']
+                data_length=data_length
             )
             self.available_variables.append(var)
         
         self.status_text.value = f"Loaded {len(self.available_variables)} variables"
         self.status_text.color = ft.Colors.GREEN
         self.filter_variables(None)
+        
+        # Force UI update
+        if hasattr(self.variables_module, 'page') and self.variables_module.page:
+            self.variables_module.page.update()
 
     def filter_variables(self, e):
         """Filter variables based on category and search"""

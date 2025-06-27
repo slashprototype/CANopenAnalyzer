@@ -61,6 +61,10 @@ class MainWindow(ft.Column):
         self.modules["variables"].set_od_reader_module(self.modules["od_reader"])
         self.modules["od_reader"].set_variables_module(self.modules["variables"])
         
+        # Monitor <-> OD Reader bidirectional reference
+        self.modules["monitor"].set_od_reader_module(self.modules["od_reader"])
+        self.modules["od_reader"].set_monitor_module(self.modules["monitor"])
+        
         # Add other cross-references as needed
         # Example: self.modules["graphs"].set_variables_module(self.modules["variables"])
     
@@ -92,8 +96,15 @@ class MainWindow(ft.Column):
             """Handle tab changes and cross-module communication"""
             selected_tab = e.control.selected_index
             
+            # Auto-load OD data when switching to monitor tab
+            if selected_tab == 1:  # Monitor tab
+                try:
+                    self.modules["monitor"].auto_load_from_od_reader()
+                except Exception as ex:
+                    self.logger.debug(f"Could not auto-load monitor data: {ex}")
+            
             # Auto-load OD data when switching to variables tab
-            if selected_tab == 2:  # Variables tab
+            elif selected_tab == 2:  # Variables tab
                 try:
                     self.modules["variables"].auto_load_from_od_reader()
                 except Exception as ex:
@@ -156,6 +167,7 @@ class MainWindow(ft.Column):
             content=ft.Row([
                 ft.Text("Status: Ready", size=12),
                 ft.Text("CANopen Analyzer v1.0", size=12),
+                ft.Text("By Slashprototype", size=12),
             ]),
             bgcolor=ft.Colors.GREY_100,
             padding=10,

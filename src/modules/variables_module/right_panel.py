@@ -296,7 +296,7 @@ class RightPanel(ft.Column):
             try:
                 node_id_str = self.panel_node_id.value.strip() if hasattr(self, 'panel_node_id') and self.panel_node_id.value else "2"
                 node_id = int(node_id_str)
-                if node_id < 1 or node_id > 127:
+                if node_id < 1 | node_id > 127:
                     self._show_error("Node ID must be between 1 and 127")
                     return
             except ValueError:
@@ -394,6 +394,8 @@ class RightPanel(ft.Column):
             
             if success:
                 self._show_success(f"Reading {variable.name}...")
+                # Update display immediately to show the read attempt
+                self.update_table()
             else:
                 self._show_error(f"Failed to send read request for {variable.name}")
                 

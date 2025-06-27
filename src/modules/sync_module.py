@@ -345,7 +345,7 @@ class SyncModule(ft.Column):
                 
                 if success:
                     self.sync_count += 1
-                    self.logger.debug(f"SYNC sent - COB-ID: 0x{self.sync_cob_id:03X}, Counter: {self.sync_counter if self.max_counter > 0 else 'None'}")
+                    # self.logger.debug(f"SYNC sent - COB-ID: 0x{self.sync_cob_id:03X}, Counter: {self.sync_counter if self.max_counter > 0 else 'None'}")
                     
                     # Update counter
                     self.update_sync_counter()

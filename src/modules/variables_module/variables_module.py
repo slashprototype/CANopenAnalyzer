@@ -120,14 +120,23 @@ class VariablesModule(ft.Column):
             self.left_panel.load_variables_from_od(registers)
     
     def load_od_variables(self, od_module):
-        """Load variables from OD reader module (using registers list)"""
-        registers = []
-        for reg in od_module.registers:
-            reg_copy = dict(reg)
-            if "dataLength" in reg_copy:
-                reg_copy["data_length"] = reg_copy.pop("dataLength")
-            registers.append(reg_copy)
-        self.left_panel.load_variables_from_od(registers)
+        """Load variables from OD reader module (using registers list) - called by OD Reader"""
+        try:
+            self.logger.info("Loading variables from OD Reader module")
+            
+            # Use the left panel's load method which handles the data properly
+            self.left_panel.load_variables_from_od(od_module)
+            
+            # Force UI update
+            if self.page:
+                self.page.update()
+                
+            self.logger.info(f"Successfully loaded {len(self.left_panel.available_variables)} variables from OD Reader")
+            
+        except Exception as e:
+            self.logger.error(f"Error loading variables from OD module: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
     
     def on_message_received(self, message: CANMessage):
         """Process received CAN messages to update variable values"""
@@ -232,13 +241,18 @@ class VariablesModule(ft.Column):
             def sdo_callback(success: bool, message: str, error_code: int = None):
                 try:
                     if success:
+                        # Update the variable's current value on successful write
+                        variable.update_value(value)
+                        # Update the display immediately
+                        self.right_panel.update_table()
+                        
                         self.page.open(
                             ft.SnackBar(
-                                content=ft.Text(f"SDO write successful for {variable.name}"),
+                                content=ft.Text(f"SDO write successful for {variable.name}. Value updated to: {value}"),
                                 bgcolor=ft.Colors.GREEN_400
                             )
                         )
-                        self.logger.info(f"SDO write successful for {variable.name}")
+                        self.logger.info(f"SDO write successful for {variable.name}, updated current value to: {value}")
                     else:
                         self.page.open(
                             ft.SnackBar(

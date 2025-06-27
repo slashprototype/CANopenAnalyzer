@@ -173,20 +173,42 @@ class USBSerialCANInterface(BaseCANInterface):
         cob_id = frame_id & 0x7FF
         node_id = cob_id & 0x7F
         function_code = (cob_id >> 7) & 0xF
-        
-        # Determine message type
+
+        # Determine message type based on CANopen COB-ID ranges
         message_type = "Unknown"
-        if function_code == 0x0:
+        # TPDOs: 0x180, 0x280, 0x380, 0x480 (TPDO1-4)
+        if 0x180 <= cob_id < 0x200:
+            message_type = "TPDO1"
+        elif 0x280 <= cob_id < 0x300:
+            message_type = "TPDO2"
+        elif 0x380 <= cob_id < 0x400:
+            message_type = "TPDO3"
+        elif 0x480 <= cob_id < 0x500:
+            message_type = "TPDO4"
+        # RPDOs: 0x200, 0x300, 0x400, 0x500 (RPDO1-4)
+        elif 0x200 <= cob_id < 0x280:
+            message_type = "RPDO1"
+        elif 0x300 <= cob_id < 0x380:
+            message_type = "RPDO2"
+        elif 0x400 <= cob_id < 0x480:
+            message_type = "RPDO3"
+        elif 0x500 <= cob_id < 0x580:
+            message_type = "RPDO4"
+        # SDOs: 0x600 (Rx), 0x580 (Tx)
+        elif 0x600 <= cob_id < 0x700:
+            message_type = "SDO Rx"
+        elif 0x580 <= cob_id < 0x600:
+            message_type = "SDO Tx"
+        # NMT: 0x000
+        elif cob_id == 0x000:
             message_type = "NMT"
-        elif function_code == 0x1:
+        # Emergency: 0x080
+        elif 0x080 <= cob_id < 0x100:
             message_type = "Emergency"
-        elif function_code in [0x3, 0x5, 0x9, 0xD]:
-            message_type = f"PDO{function_code//4 + 1}"
-        elif function_code in [0xB, 0xC]:
-            message_type = "SDO"
-        elif function_code == 0xE:
+        # Heartbeat: 0x700
+        elif 0x700 <= cob_id < 0x780:
             message_type = "Heartbeat"
-        
+
         return CANMessage(
             timestamp=datetime.now(),
             cob_id=cob_id,
@@ -268,19 +290,19 @@ class USBSerialCANInterface(BaseCANInterface):
             byte_array = bytes.fromhex(full_hex)
             self.ser.write(byte_array)
 
-            print(f"""
-            SDO Message sent:
-            Header: 0xAA (Fixed start)
-            Type: 0x{size_hex}
-            Frame ID: {frame_id_msb:02X} {frame_id_lsb:02X} (COB-ID: 0x{sdo_cob_id:03X})
-            Node ID: {node_id}
-            Command: 0x{command:02X}
-            Index: 0x{index:04X}
-            Subindex: 0x{subindex:02X}
-            Data: {' '.join(f'0x{x:02X}' for x in data_bytes)}
-            End: 0x55
-            Complete frame: {' '.join(f'0x{x:02X}' for x in byte_array)}
-            """)
+            # print(f"""
+            # SDO Message sent:
+            # Header: 0xAA (Fixed start)
+            # Type: 0x{size_hex}
+            # Frame ID: {frame_id_msb:02X} {frame_id_lsb:02X} (COB-ID: 0x{sdo_cob_id:03X})
+            # Node ID: {node_id}
+            # Command: 0x{command:02X}
+            # Index: 0x{index:04X}
+            # Subindex: 0x{subindex:02X}
+            # Data: {' '.join(f'0x{x:02X}' for x in data_bytes)}
+            # End: 0x55
+            # Complete frame: {' '.join(f'0x{x:02X}' for x in byte_array)}
+            # """)
 
             return True
 
@@ -331,7 +353,7 @@ class USBSerialCANInterface(BaseCANInterface):
 
             # Enviar por serial
             self.ser.write(bytes(frame))
-            print(f"DEBUG: Sent frame: {[f'0x{x:02X}' for x in frame]}")
+            # print(f"DEBUG: Sent frame: {[f'0x{x:02X}' for x in frame]}")
             return True
 
         except Exception as e:
