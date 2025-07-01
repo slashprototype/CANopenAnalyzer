@@ -15,6 +15,7 @@ class ODReaderModule(ft.Column):
         self.pdo_mappings = {}  # Store PDO mappings
         self.variables_module = None  # Reference to variables module
         self.monitor_module = None  # Reference to monitor module
+        self.graph_module = None  # Reference to graph module
 
         # Create panels
         self.left_panel = LeftPanel(self)
@@ -118,6 +119,14 @@ class ODReaderModule(ft.Column):
                     self.logger.info("Notified monitor module of new OD data")
                 except Exception as e:
                     self.logger.warning(f"Could not notify monitor module: {e}")
+            
+            # Notify graph module if available
+            if self.graph_module:
+                try:
+                    self.graph_module.load_od_data(self)
+                    self.logger.info("Notified graph module of new OD data")
+                except Exception as e:
+                    self.logger.warning(f"Could not notify graph module: {e}")
 
             # Force page update
             if self.page:
@@ -190,22 +199,23 @@ class ODReaderModule(ft.Column):
                 self.logger.info("Loaded existing OD data into monitor module")
             except Exception as e:
                 self.logger.warning(f"Could not load existing OD data into monitor module: {e}")
-        pass
+
+    def set_graph_module(self, graph_module):
+        """Set reference to graph module for notifications"""
+        self.graph_module = graph_module
+        self.logger.info("Graph module reference set")
+        # If we already have registers loaded, notify the graph module immediately
+        if self.registers:
+            try:
+                self.graph_module.load_od_data(self)
+                self.logger.info("Loaded existing OD data into graph module")
+            except Exception as e:
+                self.logger.warning(f"Could not load existing OD data into graph module: {e}")
 
     def get_registers_for_export(self):
         """Get registers list for use by other modules"""
         return self.registers
 
-    def set_variables_module(self, variables_module):
-        """Set reference to variables module for notifications"""
-        self.variables_module = variables_module
-        # For now, we just store it in the config object
-        pass
-
-    def get_registers_for_export(self):
-        """Get registers list for use by other modules"""
-        return self.registers
-    
     def set_variables_module(self, variables_module):
         """Set reference to variables module for notifications"""
         self.variables_module = variables_module

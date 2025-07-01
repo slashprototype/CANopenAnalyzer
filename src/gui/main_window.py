@@ -7,7 +7,7 @@ from modules.nmt_module import NMTModule
 from modules.heartbeat_module import HeartbeatModule
 from modules.sync_module import SyncModule
 from modules.od_reader.od_reader_module import ODReaderModule
-from modules.graph_module import GraphModule
+from modules.graph import GraphModule
 from modules.interface_config_module import InterfaceConfigModule
 from interfaces.interface_manager import InterfaceManager
 
@@ -52,7 +52,7 @@ class MainWindow(ft.Column):
             "heartbeat": HeartbeatModule(self.page, self.config, self.logger),
             "sync": SyncModule(self.page, self.config, self.logger, self.interface_manager),
             "od_reader": ODReaderModule(self.page, self.config, self.logger),
-            "graphs": GraphModule(self.page, self.config, self.logger)
+            "graphs": GraphModule(self.page, self.config, self.logger, self.interface_manager)
         }
     
     def _setup_cross_references(self):
@@ -65,8 +65,11 @@ class MainWindow(ft.Column):
         self.modules["monitor"].set_od_reader_module(self.modules["od_reader"])
         self.modules["od_reader"].set_monitor_module(self.modules["monitor"])
         
-        # Add other cross-references as needed
-        # Example: self.modules["graphs"].set_variables_module(self.modules["variables"])
+        # Graphs <-> OD Reader bidirectional reference
+        self.modules["graphs"].set_od_reader_module(self.modules["od_reader"])
+        
+        # Graphs <-> Variables reference
+        self.modules["graphs"].set_variables_module(self.modules["variables"])
     
     def _initialize_modules_in_order(self):
         """Initialize modules in the correct order to handle dependencies"""
@@ -109,6 +112,13 @@ class MainWindow(ft.Column):
                     self.modules["variables"].auto_load_from_od_reader()
                 except Exception as ex:
                     self.logger.debug(f"Could not auto-load variables: {ex}")
+            
+            # Auto-load OD data when switching to graphs tab
+            elif selected_tab == 7:  # Graphs tab
+                try:
+                    self.modules["graphs"].auto_load_from_od_reader()
+                except Exception as ex:
+                    self.logger.debug(f"Could not auto-load graphs data: {ex}")
             
             self.page.update()
         
