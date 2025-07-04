@@ -527,6 +527,7 @@ class MonitorModule(ft.Column):
     
     def on_message_received(self, message: CANMessage):
         """Callback for received CAN messages"""
+        # print(f"🔍 DEBUG: MonitorModule - Message received: {message}")
         try:
             self.message_list.append(message)
             self.message_count += 1
@@ -622,7 +623,7 @@ class MonitorModule(ft.Column):
         def update_stats():
             while self.is_monitoring:
                 self.update_statistics()
-                time.sleep(1)  # Update every second
+                time.sleep(0.001)  # Update every second
         
         stats_thread = threading.Thread(target=update_stats)
         stats_thread.daemon = True

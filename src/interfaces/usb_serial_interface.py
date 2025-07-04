@@ -1,13 +1,16 @@
 import serial
 import threading
 import time
+import os
+import psutil
 from typing import Dict, List, Any, Optional
 from datetime import datetime
+from collections import deque
 
 from .base_interface import BaseCANInterface, CANMessage
 
 class USBSerialCANInterface(BaseCANInterface):
-    """CAN interface for USB-Serial converters"""
+    """CAN interface for USB-Serial converters with high-performance optimization"""
     
     def __init__(self, com_port: str = "COM1", baudrate: int = 115200):
         super().__init__()
@@ -15,113 +18,352 @@ class USBSerialCANInterface(BaseCANInterface):
         self.baudrate = baudrate
         self.ser: Optional[serial.Serial] = None
         self.communication_thread: Optional[threading.Thread] = None
+        
+        # NUEVO: Buffer centralizado de alto rendimiento
+        self._message_buffer = deque(maxlen=50000)  # Buffer grande para alta velocidad
+        self._buffer_lock = threading.RLock()  # RLock para mejor rendimiento
+        self._latest_messages = {}  # {cob_id: latest_message} para acceso rápido
+        self._statistics = {
+            'total_received': 0,
+            'messages_per_second': 0,
+            'buffer_size': 0,
+            'last_update': time.time()
+        }
+        
+        # Optimización de callbacks - solo para eventos críticos
+        self._critical_callbacks = []  # Solo para eventos importantes
+        self._callback_lock = threading.Lock()
+        
+        # Variables originales optimizadas
         self.last_valid_messages: Dict[str, List[int]] = {}
         self._lock = threading.Lock()
         
+        # High-performance buffers
+        self.read_buffer = bytearray()
+        self.message_queue = deque(maxlen=10000)
+        
+        # Performance optimization settings
+        self.bulk_read_size = 8192  # AUMENTADO: chunks más grandes
+        self.high_priority_mode = True
+        self.cpu_affinity = None
+        
+        # NUEVO: Control de flujo
+        self._processing_enabled = True
+        self._stats_counter = 0
+    
     def connect(self, com_port: str = None, baudrate: int = None) -> bool:
-        """Connect to USB-Serial CAN converter"""
+        """Connect to USB-Serial CAN converter with optimized settings"""
         try:
             if com_port:
                 self.com_port = com_port
             if baudrate:
                 self.baudrate = baudrate
                 
-            self.ser = serial.Serial(self.com_port, self.baudrate)
+            # Configure serial port for high performance
+            self.ser = serial.Serial(
+                port=self.com_port,
+                baudrate=self.baudrate,
+                timeout=0.001,  # Very short timeout for non-blocking reads
+                write_timeout=0.1,
+                rtscts=False,
+                dsrdtr=False,
+                xonxoff=False
+            )
+            
+            # Configure buffer sizes
+            if hasattr(self.ser, 'set_buffer_size'):
+                self.ser.set_buffer_size(rx_size=16384, tx_size=16384)
+                
             self.is_connected = True
             return True
         except Exception as e:
             print(f"ERROR: Error connecting to {self.com_port}: {e}")
             return False
     
-    def disconnect(self):
-        """Disconnect from USB-Serial CAN converter"""
-        self.stop_monitoring()
-        self.is_connected = False
-        if self.ser and self.ser.is_open:
-            self.ser.close()
+    def _set_high_priority(self):
+        """Set high CPU priority and affinity for the communication thread"""
+        try:
+            if self.high_priority_mode:
+                # Get current process
+                process = psutil.Process(os.getpid())
+                
+                # Set process to high priority
+                if os.name == 'nt':  # Windows
+                    process.nice(psutil.HIGH_PRIORITY_CLASS)
+                else:  # Linux/Unix
+                    process.nice(-10)
+                
+                # Set CPU affinity to last core (usually less busy)
+                if self.cpu_affinity is None:
+                    cpu_count = psutil.cpu_count()
+                    self.cpu_affinity = [cpu_count - 1] if cpu_count > 1 else [0]
+                
+                process.cpu_affinity(self.cpu_affinity)
+                print(f"DEBUG: Set high priority and CPU affinity to cores: {self.cpu_affinity}")
+                
+        except Exception as e:
+            print(f"WARNING: Could not set high priority: {e}")
     
     def start_monitoring(self) -> bool:
-        """Start monitoring CAN messages"""
+        """Start high-performance monitoring with centralized buffer"""
         if not self.is_connected or not self.ser:
             print("ERROR: Cannot start monitoring - not connected")
             return False
         
-        # Clear any pending data in serial buffer and message history
         self._clear_buffers()
-            
+        self._processing_enabled = True
         self.is_monitoring = True
-        self.communication_thread = threading.Thread(target=self._communication_loop)
+        
+        # Start optimized communication thread
+        self.communication_thread = threading.Thread(target=self._optimized_communication_loop)
         self.communication_thread.daemon = True
         self.communication_thread.start()
+        
         return True
     
     def _clear_buffers(self):
-        """Clear serial buffer and message history before starting monitoring"""
+        """Clear all buffers before starting monitoring"""
         try:
             # Clear serial input buffer
             if self.ser and self.ser.is_open:
                 self.ser.reset_input_buffer()
-                print("DEBUG: Serial input buffer cleared")
+                self.ser.reset_output_buffer()
             
-            # Clear internal message storage
+            # Clear internal buffers
+            with self._buffer_lock:
+                self._message_buffer.clear()
+                self._latest_messages.clear()
+                
             with self._lock:
                 self.last_valid_messages.clear()
                 self.message_stack.clear()
                 self.message_history.clear()
-                print("DEBUG: Message buffers cleared")
+                self.read_buffer.clear()
+                self.message_queue.clear()
+            
+            # Reset statistics
+            self._statistics = {
+                'total_received': 0,
+                'messages_per_second': 0,
+                'buffer_size': 0,
+                'last_update': time.time()
+            }
                 
         except Exception as e:
             print(f"ERROR: Error clearing buffers: {e}")
     
+    def _optimized_communication_loop(self):
+        """Highly optimized communication loop with centralized buffering"""
+        self._set_high_priority()
+        
+        buffer = bytearray()
+        message_batch = []
+        last_stats_update = time.time()
+        messages_this_second = 0
+        
+        try:
+            while self.is_monitoring and self._processing_enabled:
+                current_time = time.time()
+                
+                # Read data in larger chunks
+                if self.ser.in_waiting > 0:
+                    chunk_size = min(self.bulk_read_size, self.ser.in_waiting)
+                    new_data = self.ser.read(chunk_size)
+                    
+                    if new_data:
+                        buffer.extend(new_data)
+                        self._extract_and_buffer_messages(buffer, message_batch)
+                
+                # Process accumulated messages in batch
+                if message_batch:
+                    self._process_message_batch_optimized(message_batch)
+                    messages_this_second += len(message_batch)
+                    message_batch.clear()
+                
+                # Update statistics every second
+                if current_time - last_stats_update >= 1.0:
+                    with self._buffer_lock:
+                        self._statistics.update({
+                            'messages_per_second': messages_this_second,
+                            'buffer_size': len(self._message_buffer),
+                            'last_update': current_time
+                        })
+                    messages_this_second = 0
+                    last_stats_update = current_time
+                
+                # Micro sleep for CPU efficiency
+                time.sleep(0.0001)  # 0.1ms
+                
+        except Exception as e:
+            if self.is_monitoring:
+                print(f"ERROR: Error in optimized communication loop: {e}")
+    
+    def _extract_and_buffer_messages(self, buffer: bytearray, message_batch: list):
+        """Extract messages and add to batch for processing"""
+        while len(buffer) >= 5:
+            start_idx = buffer.find(0xAA)
+            if start_idx == -1:
+                buffer.clear()
+                break
+                
+            if start_idx > 0:
+                del buffer[:start_idx]
+                continue
+                
+            if len(buffer) < 2:
+                break
+                
+            length_info = buffer[1]
+            data_length = length_info & 0x0F
+            expected_length = 4 + data_length + 1
+            
+            if len(buffer) < expected_length:
+                break
+                
+            message_data = list(buffer[:expected_length])
+            
+            if message_data[-1] == 0x55:
+                message_batch.append(message_data)
+            
+            del buffer[:expected_length]
+    
+    def _process_message_batch_optimized(self, message_batch):
+        """Process message batch with centralized buffering"""
+        processed_messages = []
+        current_time = time.time()
+        
+        # Process all messages in batch
+        for message_data in message_batch:
+            if len(message_data) < 5:
+                continue
+                
+            try:
+                header = message_data[0]
+                length_info = message_data[1]
+                frame_id = (message_data[3] << 8) | message_data[2]
+                data_length = length_info & 0x0F
+                
+                if len(message_data) < (4 + data_length + 1):
+                    continue
+                    
+                data = message_data[4:4 + data_length]
+                end_code = message_data[-1]
+                
+                if end_code == 0x55 and len(data) == data_length:
+                    can_message = self._create_can_message(frame_id, data)
+                    can_message.timestamp = datetime.fromtimestamp(current_time)  # Timestamp consistente
+                    processed_messages.append(can_message)
+                    
+            except Exception as e:
+                continue  # Skip malformed messages
+        
+        # Batch update of centralized buffer
+        if processed_messages:
+            with self._buffer_lock:
+                for msg in processed_messages:
+                    # Add to main buffer
+                    self._message_buffer.append(msg)
+                    
+                    # Update latest message cache for quick access
+                    cob_id_key = f"{msg.cob_id:03X}"
+                    self._latest_messages[cob_id_key] = msg
+                    
+                    # Update statistics
+                    self._statistics['total_received'] += 1
+            
+            # Update legacy structures for compatibility (minimal)
+            with self._lock:
+                for msg in processed_messages:
+                    frame_id_str = f'{msg.cob_id:03X}'
+                    self.last_valid_messages[frame_id_str] = msg.data
+                    self.message_stack[frame_id_str] = msg.data
+                    
+                    # Keep minimal history
+                    self.message_history.append(msg)
+                    if len(self.message_history) > 1000:  # REDUCIDO para mejor performance
+                        del self.message_history[:500]
+            
+            # OPTIMIZADO: Solo callbacks críticos
+            self._notify_critical_callbacks_batch(processed_messages)
+    
+    def _notify_critical_callbacks_batch(self, messages):
+        """Notify only critical callbacks with batch of messages"""
+        if not self._critical_callbacks:
+            return
+            
+        with self._callback_lock:
+            for callback in self._critical_callbacks:
+                try:
+                    # Pass batch of messages instead of individual calls
+                    if hasattr(callback, 'process_message_batch'):
+                        callback.process_message_batch(messages)
+                    else:
+                        # Fallback to individual messages for compatibility
+                        for msg in messages[-5:]:  # Only last 5 messages
+                            callback(msg)
+                except Exception as e:
+                    print(f"ERROR: Error in critical callback: {e}")
+    
+    # NUEVO: Métodos de acceso optimizados para otros módulos
+    def get_latest_messages(self, max_count: int = 1000) -> List[CANMessage]:
+        """Get latest messages from buffer efficiently"""
+        with self._buffer_lock:
+            if max_count >= len(self._message_buffer):
+                return list(self._message_buffer)
+            else:
+                return list(self._message_buffer)[-max_count:]
+    
+    def get_latest_by_cob_id(self, cob_id: int) -> Optional[CANMessage]:
+        """Get latest message for specific COB-ID"""
+        cob_id_key = f"{cob_id:03X}"
+        with self._buffer_lock:
+            return self._latest_messages.get(cob_id_key)
+    
+    def get_messages_since(self, timestamp: float) -> List[CANMessage]:
+        """Get messages received since timestamp"""
+        with self._buffer_lock:
+            return [msg for msg in self._message_buffer 
+                   if msg.timestamp.timestamp() > timestamp]
+    
+    def get_statistics(self) -> Dict:
+        """Get interface statistics"""
+        with self._buffer_lock:
+            return self._statistics.copy()
+    
+    def add_critical_callback(self, callback):
+        """Add callback for critical events only"""
+        with self._callback_lock:
+            if callback not in self._critical_callbacks:
+                self._critical_callbacks.append(callback)
+    
+    def remove_critical_callback(self, callback):
+        """Remove critical callback"""
+        with self._callback_lock:
+            if callback in self._critical_callbacks:
+                self._critical_callbacks.remove(callback)
+    
+    # DEPRECATED: Legacy callback methods - maintain for compatibility but discourage use
+    def add_message_callback(self, callback):
+        """DEPRECATED: Use add_critical_callback or polling methods instead"""
+        print("WARNING: add_message_callback is deprecated. Use polling methods for better performance.")
+        self.add_critical_callback(callback)
+    
+    def remove_message_callback(self, callback):
+        """DEPRECATED: Use remove_critical_callback instead"""
+        self.remove_critical_callback(callback)
+    
     def stop_monitoring(self):
         """Stop monitoring CAN messages"""
         self.is_monitoring = False
+        
+        # Wait for threads to finish
         if self.communication_thread and self.communication_thread.is_alive():
             self.communication_thread.join(timeout=1.0)
-    
-    def _communication_loop(self):
-        """Main communication loop (adapted from original analyzer.py)"""
-        buffer = []  # Almacenará los bytes del mensaje actual
-        reading_message = False  # Indicador para saber si estamos en un mensaje
-        message_start_time = 0  # Para llevar el tiempo desde que se empezó a leer un mensaje
-        timeout = 0.1  # 100ms de timeout para considerar un mensaje inválido
-        
-        try:
-            while self.is_monitoring:
-                # Leer un byte desde el puerto serial
-                if self.ser.in_waiting > 0:
-                    byte = self.ser.read(1)
-                    byte_value = int.from_bytes(byte, byteorder='big')
-
-                    # Si encontramos el encabezado AA, iniciamos la captura del mensaje
-                    if byte_value == 0xAA and not reading_message:
-                        reading_message = True
-                        message_start_time = time.time()
-                        buffer = [byte_value]  # Reiniciar el buffer e incluir el encabezado
-                    elif reading_message:
-                        # Verificar timeout
-                        if (time.time() - message_start_time) > timeout:
-                            reading_message = False
-                            continue
-                            
-                        buffer.append(byte_value)
-                        
-                        # Si encontramos el código de finalización 55, procesamos el mensaje
-                        if byte_value == 0x55:
-                            self._process_message(buffer)
-                            reading_message = False  # Resetear el indicador para el siguiente mensaje
-                
-                # Pequeña pausa para no saturar la CPU
-                else:
-                    time.sleep(0.001)
-
-        except Exception as e:
-            if self.is_monitoring:
-                print(f"ERROR: Error in communication loop: {e}")
+        if hasattr(self, 'processing_thread') and self.processing_thread and self.processing_thread.is_alive():
+            self.processing_thread.join(timeout=1.0)
     
     def _process_message(self, buffer: List[int]):
-        """Process complete message (adapted from original analyzer.py)"""
-        # Procesar el mensaje completo
+        """Process complete message with optimized performance"""
         if len(buffer) < 5:
             return
         
@@ -131,8 +373,8 @@ class USBSerialCANInterface(BaseCANInterface):
             frame_id = (buffer[3] << 8) | buffer[2]
             data_length = length_info & 0x0F
             
-            # Verificar que el buffer tiene suficientes datos
-            if len(buffer) < (4 + data_length + 1):  # header + length + id(2) + data + end
+            # Verify buffer has enough data
+            if len(buffer) < (4 + data_length + 1):
                 return
                 
             data = buffer[4:4 + data_length]
@@ -140,33 +382,32 @@ class USBSerialCANInterface(BaseCANInterface):
             
             frame_id_str = f'{frame_id&0xFFF:03X}'
             
-            # Solo actualizar si el mensaje es válido y completo
+            # Only update if message is valid and complete
             if end_code == 0x55 and len(data) == data_length:
+                # Use faster locking strategy
                 with self._lock:
                     self.last_valid_messages[frame_id_str] = data
-                    self.message_stack = self.last_valid_messages.copy()
+                    self.message_stack[frame_id_str] = data
                 
-                # Create CANMessage object for the interface
+                # Create CANMessage object
                 can_message = self._create_can_message(frame_id, data)
+                # print(f"DEBUG: Processed message: {can_message}")
                 
-                # Add to history
+                # Add to history with size limit
                 self.message_history.append(can_message)
-                if len(self.message_history) > 1000:  # Keep only last 1000 messages
-                    self.message_history.pop(0)
+                if len(self.message_history) > 5000:  # Increased buffer size
+                    # Remove older messages in chunks for better performance
+                    del self.message_history[:1000]
                 
                 # Notify callbacks
                 self._notify_callbacks(can_message)
-            else:
-                # Si el mensaje no es válido, mantener el último valor válido
-                if frame_id_str in self.last_valid_messages:
-                    with self._lock:
-                        self.message_stack[frame_id_str] = self.last_valid_messages[frame_id_str]
                     
         except Exception as e:
             print(f"ERROR: Error processing message: {e}")
-            # En caso de error, mantener los últimos valores válidos
+            # Maintain last valid messages on error
             with self._lock:
-                self.message_stack = self.last_valid_messages.copy()
+                if frame_id_str in self.last_valid_messages:
+                    self.message_stack[frame_id_str] = self.last_valid_messages[frame_id_str]
     
     def _create_can_message(self, frame_id: int, data: List[int]) -> CANMessage:
         """Create CANMessage object from frame data"""
@@ -221,7 +462,7 @@ class USBSerialCANInterface(BaseCANInterface):
         )
     
     def send_data(self, send_data: Dict[str, Any]) -> bool:
-        """Send data through USB-Serial interface (adapted from original analyzer.py)"""
+        """Send data through USB-Serial interface with optimized performance"""
         if not self.is_connected or not self.ser:
             print("ERROR: Not connected to USB-Serial interface")
             return False
@@ -248,14 +489,12 @@ class USBSerialCANInterface(BaseCANInterface):
                 else:
                     subindex = int(subindex)
 
-            # Get node ID (default to 1)
             node_id = send_data.get('node_id', 1)
             if isinstance(node_id, str):
                 node_id = int(node_id)
 
             is_read = send_data.get('is_read', False)
 
-            # Comando CANopen para escritura expedited con tamaño
             command_map = {
                 1: 0x2F,
                 2: 0x2B,
@@ -264,45 +503,27 @@ class USBSerialCANInterface(BaseCANInterface):
             }
             command = 0x40 if is_read else command_map[size]
 
-            # Datos en little endian con padding hasta 4 bytes
             data_bytes = [(value >> (8 * i)) & 0xFF for i in range(size)] if not is_read else [0] * 4
             data_bytes += [0x00] * (4 - len(data_bytes))
 
-            # Calculate SDO COB-ID: 0x600 + node_id for SDO Tx
             sdo_cob_id = 0x600 + node_id
             frame_id_lsb = sdo_cob_id & 0xFF
             frame_id_msb = (sdo_cob_id >> 8) & 0xFF
 
-            # Index en little endian
             index_lsb = index & 0xFF
             index_msb = (index >> 8) & 0xFF
 
-            # Payload CAN de 8 bytes
             sdo_payload = [command, index_lsb, index_msb, subindex] + data_bytes
 
-            # Armar cadena hexadecimal completa
             header = "AA"
             size_hex = f"C{len(sdo_payload)}"
             end = "55"
             full_hex = header + size_hex + f"{frame_id_lsb:02X}{frame_id_msb:02X}" + ''.join(f"{x:02X}" for x in sdo_payload) + end
 
-            # Enviar como bytes
+            # Send as bytes with immediate flush for better timing
             byte_array = bytes.fromhex(full_hex)
             self.ser.write(byte_array)
-
-            # print(f"""
-            # SDO Message sent:
-            # Header: 0xAA (Fixed start)
-            # Type: 0x{size_hex}
-            # Frame ID: {frame_id_msb:02X} {frame_id_lsb:02X} (COB-ID: 0x{sdo_cob_id:03X})
-            # Node ID: {node_id}
-            # Command: 0x{command:02X}
-            # Index: 0x{index:04X}
-            # Subindex: 0x{subindex:02X}
-            # Data: {' '.join(f'0x{x:02X}' for x in data_bytes)}
-            # End: 0x55
-            # Complete frame: {' '.join(f'0x{x:02X}' for x in byte_array)}
-            # """)
+            self.ser.flush()  # Force immediate transmission
 
             return True
 
@@ -311,6 +532,7 @@ class USBSerialCANInterface(BaseCANInterface):
             return False
 
     def send_can_frame(self, frame_id: int, data: List[int], is_extended: bool = False, is_remote: bool = False) -> bool:
+        """Send CAN frame with optimized performance"""
         if not self.is_connected or not self.ser:
             print("ERROR: Not connected to USB-Serial interface")
             return False
@@ -318,20 +540,16 @@ class USBSerialCANInterface(BaseCANInterface):
         try:
             # Header
             header = 0xAA
-
-            # Control byte:
-            control = 0xC0  # bit7=1, bit6=1 (0xC0)
+            control = 0xC0
             if is_extended:
-                control |= 0x20  # bit5=1 for extended frame
+                control |= 0x20
             if is_remote:
-                control |= 0x10  # bit4=1 for remote frame
-            control |= len(data) & 0x0F  # last 4 bits: length
+                control |= 0x10
+            control |= len(data) & 0x0F
 
             frame = [header, control]
 
-            # Frame ID (little endian)
             if is_extended:
-                # 4 bytes
                 frame += [
                     (frame_id >> 0) & 0xFF,
                     (frame_id >> 8) & 0xFF,
@@ -339,24 +557,31 @@ class USBSerialCANInterface(BaseCANInterface):
                     (frame_id >> 24) & 0xFF,
                 ]
             else:
-                # 2 bytes
                 frame += [
                     (frame_id >> 0) & 0xFF,
                     (frame_id >> 8) & 0xFF,
                 ]
 
-            # Data bytes
             frame += data
-
-            # End code
             frame.append(0x55)
 
-            # Enviar por serial
+            # Send with immediate flush
             self.ser.write(bytes(frame))
-            # print(f"DEBUG: Sent frame: {[f'0x{x:02X}' for x in frame]}")
+            self.ser.flush()
             return True
 
         except Exception as e:
             print(f"ERROR: Error sending CAN frame: {e}")
             return False
+    
+    def disconnect(self):
+        """Disconnect from USB-Serial CAN converter"""
+        self.stop_monitoring()
+        self.is_connected = False
+        if self.ser and self.ser.is_open:
+            self.ser.close()
+        self.stop_monitoring()
+        self.is_connected = False
+        if self.ser and self.ser.is_open:
+            self.ser.close()
 

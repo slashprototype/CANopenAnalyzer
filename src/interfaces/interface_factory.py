@@ -90,6 +90,12 @@ if CANOPEN_AVAILABLE:
             print("SocketCAN send_data not implemented yet")
             return False
         
+        def send_can_frame(self, frame_id: int, data: List[int], is_extended: bool = False, is_remote: bool = False) -> bool:
+            """Send a raw CAN frame"""
+            # This would need to be implemented based on original analyzer's send capabilities
+            print("SocketCAN send_can_frame not implemented yet")
+            return False
+        
         def _convert_message(self, original_message):
             """Convert original CANMessage to our format"""
             # Convert the original message format to our CANMessage format

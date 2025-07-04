@@ -93,7 +93,6 @@ class InterfaceManager:
             })
         elif self.interface_type == "socketcan":
             params.update({
-                'interface': self.config.can_config.interface,
                 'channel': self.config.can_config.channel,
                 'bitrate': self.config.can_config.bitrate
             })
@@ -256,6 +255,18 @@ class InterfaceManager:
             return self.current_interface.get_messages_dictionary()
         return {}
     
+    def get_messages_since(self, timestamp: float):
+        """Get messages since a specific timestamp"""
+        if self.current_interface and hasattr(self.current_interface, 'get_messages_since'):
+            return self.current_interface.get_messages_since(timestamp)
+        return []
+    
+    def get_latest_messages(self, count: int = None):
+        """Get the latest N messages"""
+        if self.current_interface and hasattr(self.current_interface, 'get_latest_messages'):
+            return self.current_interface.get_latest_messages(count)
+        return []
+    
     def switch_interface(self, new_interface_type: str) -> bool:
         """Switch to a different interface type"""
         try:
@@ -359,5 +370,4 @@ class InterfaceManager:
             
         except Exception as e:
             self.logger.error(f"Error sending SDO read: {e}")
-            return False
             return False

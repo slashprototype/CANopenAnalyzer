@@ -20,8 +20,8 @@ class Logger:
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         
-        # File handler
-        file_handler = logging.FileHandler(log_file)
+        # File handler with UTF-8 encoding
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
         

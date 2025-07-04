@@ -202,7 +202,7 @@ class VariablesModule(ft.Column):
                 index=index,
                 sub_index=sub_index,
                 callback=sdo_read_callback,
-                timeout_ms=1000
+                timeout_ms=5000
             )
             
             if success:
@@ -272,7 +272,7 @@ class VariablesModule(ft.Column):
                 value=value,
                 data_size=data_size_bits,
                 callback=sdo_callback,
-                timeout_ms=1000
+                timeout_ms=5000
             )
             
             if success:

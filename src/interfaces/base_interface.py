@@ -48,11 +48,19 @@ class BaseCANInterface(ABC):
     @abstractmethod
     def send_data(self, send_data: Dict[str, Any]) -> bool:
         """Send data through the interface"""
-        raise NotImplementedError("Subclasses must implement send_data")
+        pass
     
+    @abstractmethod
     def send_can_frame(self, frame_id: int, data: List[int], is_extended: bool = False, is_remote: bool = False) -> bool:
         """Send a raw CAN frame"""
-        raise NotImplementedError("Subclasses must implement send_can_frame")
+        pass
+    
+    def set_high_performance_mode(self, enabled: bool = True, cpu_affinity: Optional[List[int]] = None):
+        """Enable/disable high performance mode with CPU optimization"""
+        if hasattr(self, 'high_priority_mode'):
+            self.high_priority_mode = enabled
+        if hasattr(self, 'cpu_affinity') and cpu_affinity:
+            self.cpu_affinity = cpu_affinity
     
     def add_message_callback(self, callback: Callable):
         """Add callback for new messages"""

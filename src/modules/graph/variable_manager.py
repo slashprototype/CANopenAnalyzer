@@ -11,15 +11,18 @@ class VariableManager:
         self.pdo_variables = {}
         self.selected_variables = set()  # Variables selected for graphing
         
+        # Track draggable controls for drop event handling
+        self.draggable_control_map = {}  # {control_id: variable_index}
+        
         # UI components
         self.variables_list = None
-        
+    
     def initialize_ui(self):
         """Initialize the variables list UI"""
         self.variables_list = ft.Column([
             ft.Text("Available PDO Variables", size=14, weight=ft.FontWeight.BOLD),
             ft.Text("Select variables to graph:", size=12),
-        ], scroll=ft.ScrollMode.AUTO)
+        ], scroll=ft.ScrollMode.AUTO, expand=True)
         
         return self.variables_list
     
@@ -58,14 +61,18 @@ class VariableManager:
             # Clear existing content except headers
             self.variables_list.controls = self.variables_list.controls[:2]
             self.pdo_variables = {}
+            self.draggable_control_map = {}  # Clear the mapping
             
             # Get variable names from OD registers (only manufacturer category)
             manufacturer_vars = {}
             for reg in self.od_registers:
                 if reg.get('category') == 'Manufacturer':
                     manufacturer_vars[reg['index']] = reg.get('name', 'Unknown')
+                    # Debug: Log each manufacturer variable found
+                    self.logger.debug(f"Found manufacturer variable: {reg['index']} - {reg.get('name', 'Unknown')}")
             
             self.logger.info(f"Found {len(manufacturer_vars)} manufacturer variables in OD")
+            self.logger.debug(f"Manufacturer variables indices: {list(manufacturer_vars.keys())}")
             
             # Add manufacturer variables that are mapped in PDOs
             variables_added = 0
@@ -77,6 +84,7 @@ class VariableManager:
                 
                 for var in pdo_data.get('mapped_variables', []):
                     var_index = var['index']
+                    self.logger.debug(f"Processing PDO variable with index: {var_index} (type: {type(var_index)})")
                     
                     # Only include manufacturer variables
                     if var_index in manufacturer_vars:
@@ -94,23 +102,26 @@ class VariableManager:
                         # Initialize history in data collector
                         data_collector.initialize_variable_history(var_index)
                         
-                        # Create draggable variable item
+                        # Create draggable variable item with proper data handling
+                        draggable_content = ft.Container(
+                            content=ft.Row([
+                                ft.Icon(ft.Icons.DRAG_INDICATOR, size=16, color=ft.Colors.BLUE_400),
+                                ft.Column([
+                                    ft.Text(f"{var_index} - {var_name[:25]}", size=11, weight=ft.FontWeight.W_500),
+                                    ft.Text(f"({pdo_type})", size=9, color=ft.Colors.GREY_600)
+                                ], spacing=2)
+                            ], tight=True),
+                            padding=8,
+                            border_radius=4,
+                            bgcolor=ft.Colors.BLUE_50,
+                            border=ft.border.all(1, ft.Colors.BLUE_200),
+                            width=250,
+                            data=var_index  # Store variable index in container data
+                        )
+                        
                         draggable_var = ft.Draggable(
                             group="variables",
-                            content=ft.Container(
-                                content=ft.Row([
-                                    ft.Icon(ft.Icons.DRAG_INDICATOR, size=16, color=ft.Colors.BLUE_400),
-                                    ft.Column([
-                                        ft.Text(f"{var_index} - {var_name[:25]}", size=11, weight=ft.FontWeight.W_500),
-                                        ft.Text(f"({pdo_type})", size=9, color=ft.Colors.GREY_600)
-                                    ], spacing=2)
-                                ], tight=True),
-                                padding=8,
-                                border_radius=4,
-                                bgcolor=ft.Colors.BLUE_50,
-                                border=ft.border.all(1, ft.Colors.BLUE_200),
-                                width=250
-                            ),
+                            content=draggable_content,
                             content_feedback=ft.Container(
                                 content=ft.Row([
                                     ft.Icon(ft.Icons.MOVING, size=14),
@@ -122,13 +133,23 @@ class VariableManager:
                                 border=ft.border.all(2, ft.Colors.BLUE_400),
                                 opacity=0.8
                             ),
-                            data=var_index  # Pass the variable index directly
+                            data=var_index  # Store variable index in draggable data
                         )
+                        
+                        # Store the mapping for later retrieval during drop events
+                        # We'll store it when the control gets an ID assigned by Flet
+                        if hasattr(draggable_var, 'uid'):
+                            self.draggable_control_map[draggable_var.uid] = var_index
+                        
+                        # Debug print to verify variable index
+                        self.logger.info(f"Created draggable for variable: '{var_index}' with data: '{var_index}' - {var_name}")
                         
                         self.variables_list.controls.append(draggable_var)
                         variables_added += 1
                         
                         self.logger.debug(f"Added variable {var_index} - {var_name}")
+                    else:
+                        self.logger.debug(f"Variable {var_index} not found in manufacturer variables list")
             
             # Update data collector's pdo_variables reference
             data_collector.pdo_variables = self.pdo_variables
@@ -156,8 +177,16 @@ class VariableManager:
                     )
                 )
             
-            if self.page:
-                self.page.update()
+            # Force update of the variables list
+            if hasattr(self.variables_list, 'update'):
+                self.variables_list.update()
+                
+            # Force page update
+            if self.page and hasattr(self.page, 'update'):
+                try:
+                    self.page.update()
+                except Exception as page_error:
+                    self.logger.debug(f"Page update failed in variables list: {page_error}")
                 
         except Exception as e:
             self.logger.error(f"Error building variables list: {e}")
@@ -176,3 +205,8 @@ class VariableManager:
     def get_selected_count(self) -> int:
         """Get number of selected variables"""
         return len(self.selected_variables)
+    
+    def get_selected_variables(self):
+        """Get list of selected variables"""
+        # Return empty list for now - this will be implemented based on your UI selection logic
+        return []
